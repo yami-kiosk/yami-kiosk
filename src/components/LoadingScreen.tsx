@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import {
+  clearLocalOperatorBinding,
   ensureOperatorSyncedToRemote,
-  getRegisteredNameForWallet,
-  resolveRegisteredNameForWallet,
+  resolveOperatorLockState,
 } from '../lib/operatorRegistry'
 import {
   OPERATOR_NAME_MAX,
@@ -11,7 +11,11 @@ import {
   isValidOperatorName,
   sanitizeOperatorName,
 } from '../lib/operatorName'
-import { isSupabaseConfigured, getSupabaseConfigHint } from '../lib/supabase/client'
+import {
+  getSupabaseConfigHint,
+  getSupabaseProjectRef,
+  isSupabaseConfigured,
+} from '../lib/supabase/client'
 import { copyToClipboard } from '../lib/clipboard'
 import { truncatePublicKey } from '../lib/wallet'
 import { useSupabaseStatus } from '../hooks/useSupabaseStatus'
@@ -37,27 +41,43 @@ export function LoadingScreen({
   const [animationDone, setAnimationDone] = useState(false)
   const [draftName, setDraftName] = useState(savedOperatorName)
   const [error, setError] = useState<string | null>(null)
-  const [lockedName, setLockedName] = useState<string | null>(() =>
-    getRegisteredNameForWallet(walletPublicKey),
-  )
+  const [lockState, setLockState] = useState<
+    Awaited<ReturnType<typeof resolveOperatorLockState>> | null
+  >(null)
   const [submitting, setSubmitting] = useState(false)
 
   const { status: networkStatus, message: networkMessage } = useSupabaseStatus(
     variant === 'bypass',
   )
 
-  const isLocked = Boolean(lockedName)
+  const isLocked = lockState?.status === 'locked'
+  const lockedName = isLocked ? lockState.name : null
+  const syndicateRef = getSupabaseProjectRef()
 
   useEffect(() => {
-    if (!walletPublicKey) return
-    void resolveRegisteredNameForWallet(walletPublicKey).then((name) => {
-      if (name) setLockedName(name)
+    if (!walletPublicKey) {
+      setLockState(null)
+      return
+    }
+
+    let cancelled = false
+    void resolveOperatorLockState(walletPublicKey).then((next) => {
+      if (!cancelled) setLockState(next)
     })
+
+    return () => {
+      cancelled = true
+    }
   }, [walletPublicKey])
 
   useEffect(() => {
-    setDraftName(lockedName ?? savedOperatorName)
-  }, [lockedName, savedOperatorName])
+    if (!lockState) return
+    if (lockState.status === 'locked') {
+      setDraftName(lockState.name)
+      return
+    }
+    setDraftName(lockState.suggestedName ?? savedOperatorName)
+  }, [lockState, savedOperatorName])
 
   useEffect(() => {
     if (variant === 'boot') {
@@ -80,7 +100,12 @@ export function LoadingScreen({
   }
 
   const handleEnter = async () => {
-    if (!nameValid || !onEnter || !walletPublicKey) return
+    if (!nameValid || !onEnter || !walletPublicKey) {
+      if (!walletPublicKey) {
+        setError('Burner node still initializing — wait a moment.')
+      }
+      return
+    }
 
     if (isLocked && lockedName) {
       if (!isSupabaseConfigured()) {
@@ -93,7 +118,7 @@ export function LoadingScreen({
       try {
         const sync = await ensureOperatorSyncedToRemote(walletPublicKey)
         if (sync?.success) {
-          setLockedName(sync.name)
+          setLockState({ status: 'locked', name: sync.name, source: 'remote' })
           toast.success(`Operator ${sync.name} synced to syndicate network.`, {
             className: 'yami-toast',
           })
@@ -122,6 +147,13 @@ export function LoadingScreen({
       const result = await registerOperatorName(draftName)
       if (!result.success) {
         setError(result.message)
+        toast.error(result.message, {
+          className: 'yami-toast',
+          duration: 8000,
+        })
+        if (result.code === 'TAKEN' && walletPublicKey) {
+          clearLocalOperatorBinding(walletPublicKey)
+        }
         return
       }
       if (result.localOnly) {
@@ -131,16 +163,28 @@ export function LoadingScreen({
           className: 'yami-toast',
           duration: 8000,
         })
+        setLockState({ status: 'locked', name: result.name, source: 'local-only' })
       } else {
         toast.success(`Operator ${result.name} registered on syndicate network.`, {
           className: 'yami-toast',
         })
+        setLockState({ status: 'locked', name: result.name, source: 'remote' })
       }
-      setLockedName(result.name)
       onEnter()
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const handleClearStaleHandle = () => {
+    if (!walletPublicKey) return
+    clearLocalOperatorBinding(walletPublicKey)
+    setLockState({ status: 'unlocked', suggestedName: null })
+    setDraftName('')
+    setError(null)
+    toast.message('Local handle cleared — pick a new syndicate ID.', {
+      className: 'yami-toast',
+    })
   }
 
   return (
@@ -196,7 +240,9 @@ export function LoadingScreen({
             />
             {isLocked ? (
               <p className="mt-2 text-center font-mono text-[9px] text-terminal-green/70">
-                1 HANDLE · 1 BURNER NODE — tap ENTER to sync to syndicate network
+                {lockState?.source === 'remote'
+                  ? 'Registered on syndicate network — tap ENTER to continue'
+                  : 'Local handle only — configure Supabase + redeploy to go live'}
               </p>
             ) : (
               <>
@@ -205,12 +251,21 @@ export function LoadingScreen({
                   permanent
                   {isSupabaseConfigured()
                     ? networkStatus === 'online'
-                      ? ' · global registry LIVE'
+                      ? ` · syndicate LIVE${syndicateRef ? ` (${syndicateRef})` : ''}`
                       : networkStatus === 'checking'
                         ? ' · connecting to syndicate…'
-                        : ' · syndicate offline (local fallback)'
+                        : ' · syndicate offline'
                     : ` · local only — ${getSupabaseConfigHint() ?? 'add .env.local'}`}
                 </p>
+                {lockState?.suggestedName ? (
+                  <button
+                    type="button"
+                    onClick={handleClearStaleHandle}
+                    className="mt-2 w-full font-mono text-[8px] text-neon-pink/80 hover:text-neon-pink"
+                  >
+                    [ CLEAR STALE LOCAL HANDLE ] start fresh
+                  </button>
+                ) : null}
                 {networkStatus === 'offline' && networkMessage ? (
                   <p className="mt-1 text-center font-mono text-[8px] text-lobster-red/80">
                     {networkMessage}

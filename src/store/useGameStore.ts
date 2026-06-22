@@ -80,6 +80,7 @@ import {
   type SeasonSyncResult,
 } from './seasonSettlement'
 import {
+  ensureOperatorSyncedToRemote,
   getRegisteredNameForWallet,
   registerOperatorAccount,
   resolveRegisteredNameForWallet,
@@ -396,19 +397,22 @@ export const useGameStore = create<GameState>()(
         const state = get()
         if (!state.walletPublicKey) return
 
-        const registeredName = await resolveRegisteredNameForWallet(
-          state.walletPublicKey,
-        )
-        if (registeredName) {
-          set({ operatorName: registeredName })
-        }
-
-        if (isSupabaseConfigured() && registeredName) {
-          const remote = await fetchOperatorHandle(state.walletPublicKey)
-          if (!remote && registeredName) {
-            console.warn(
-              '[registry] handle local but missing on syndicate network — re-enter alley to sync',
-            )
+        if (isSupabaseConfigured()) {
+          const sync = await ensureOperatorSyncedToRemote(state.walletPublicKey)
+          if (sync?.success) {
+            set({ operatorName: sync.name })
+          } else {
+            const remote = await fetchOperatorHandle(state.walletPublicKey)
+            if (remote) {
+              set({ operatorName: remote })
+            }
+          }
+        } else {
+          const registeredName = await resolveRegisteredNameForWallet(
+            state.walletPublicKey,
+          )
+          if (registeredName) {
+            set({ operatorName: registeredName })
           }
         }
 

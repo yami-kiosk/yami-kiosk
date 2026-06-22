@@ -25,6 +25,10 @@ export type RegisterOperatorResult =
   | { success: true; name: string; localOnly?: boolean }
   | { success: false; code: RegisterOperatorCode; message: string }
 
+export type OperatorLockState =
+  | { status: 'unlocked'; suggestedName: string | null }
+  | { status: 'locked'; name: string; source: 'remote' | 'local-only' }
+
 function loadRegistry(): OperatorRegistry {
   try {
     const raw = localStorage.getItem(REGISTRY_STORAGE_KEY)
@@ -116,6 +120,20 @@ function validateHandle(rawName: string): RegisterOperatorResult | { ok: true; n
   return { ok: true, name }
 }
 
+export function clearLocalOperatorBinding(walletPublicKey: string): void {
+  const registry = loadRegistry()
+  const name = registry.byWallet[walletPublicKey]
+  if (name) {
+    delete registry.byName[name]
+    delete registry.byWallet[walletPublicKey]
+    saveRegistry(registry)
+  }
+
+  const cache = loadHandleCache()
+  delete cache[walletPublicKey]
+  localStorage.setItem(HANDLE_CACHE_KEY, JSON.stringify(cache))
+}
+
 export function getRegisteredNameForWallet(
   walletPublicKey: string | null,
 ): string | null {
@@ -126,6 +144,32 @@ export function getRegisteredNameForWallet(
 
   const registry = loadRegistry()
   return registry.byWallet[walletPublicKey] ?? null
+}
+
+export async function resolveOperatorLockState(
+  walletPublicKey: string | null,
+): Promise<OperatorLockState> {
+  if (!walletPublicKey) {
+    return { status: 'unlocked', suggestedName: null }
+  }
+
+  const local = getRegisteredNameForWallet(walletPublicKey)
+
+  if (isSupabaseConfigured()) {
+    const remote = await fetchOperatorHandle(walletPublicKey)
+    if (remote) {
+      registerOperatorLocal(remote, walletPublicKey)
+      return { status: 'locked', name: remote, source: 'remote' }
+    }
+    // Stale local cache must not block re-registration on the live syndicate network.
+    return { status: 'unlocked', suggestedName: local }
+  }
+
+  if (local) {
+    return { status: 'locked', name: local, source: 'local-only' }
+  }
+
+  return { status: 'unlocked', suggestedName: null }
 }
 
 export async function ensureOperatorSyncedToRemote(
@@ -170,9 +214,12 @@ export async function resolveRegisteredNameForWallet(
       const sync = await ensureOperatorSyncedToRemote(walletPublicKey)
       if (sync?.success) return sync.name
       if (sync && !sync.success) {
-        console.warn('[registry] local handle not on syndicate network:', sync.message)
+        console.warn(
+          '[registry] local handle not on syndicate network:',
+          sync.message,
+        )
       }
-      return local
+      return null
     }
 
     return null

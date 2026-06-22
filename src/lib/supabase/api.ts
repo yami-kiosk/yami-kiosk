@@ -1,4 +1,16 @@
 import { getSupabase, isSupabaseConfigured } from './client'
+
+function parseRpcJson<T>(data: unknown): T | null {
+  if (data == null) return null
+  if (typeof data === 'string') {
+    try {
+      return JSON.parse(data) as T
+    } catch {
+      return null
+    }
+  }
+  return data as T
+}
 import type {
   ClaimRewardResult,
   LeaderboardRow,
@@ -67,8 +79,27 @@ export async function registerOperatorRemote(
     }
   }
 
-  const payload = data as RpcRegisterResponse
+  const payload = parseRpcJson<RpcRegisterResponse>(data)
+  if (!payload) {
+    return {
+      success: false,
+      code: 'NETWORK',
+      message: 'Invalid response from syndicate network.',
+    }
+  }
+
   if (payload.success && payload.handle) {
+    const verified = await fetchOperatorHandle(walletPublicKey)
+    if (verified && verified !== payload.handle) {
+      return { success: true, name: verified }
+    }
+    if (!verified) {
+      return {
+        success: false,
+        code: 'NETWORK',
+        message: 'Registration did not persist — try again.',
+      }
+    }
     return { success: true, name: payload.handle }
   }
 

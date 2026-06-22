@@ -45,6 +45,12 @@ export function isSupabaseConfigured(): boolean {
   return config !== null
 }
 
+export function getSupabaseProjectRef(): string | null {
+  if (!config) return null
+  const match = config.url.match(/https:\/\/([^.]+)\.supabase\.co/i)
+  return match?.[1] ?? null
+}
+
 export function getSupabaseConfigHint(): string | null {
   const url = readEnv('VITE_SUPABASE_URL')
   const key = readEnv('VITE_SUPABASE_ANON_KEY')
