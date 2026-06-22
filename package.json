@@ -11,7 +11,8 @@
     "supabase:check": "node scripts/check-supabase.mjs",
     "supabase:start": "npx supabase start",
     "supabase:stop": "npx supabase stop",
-    "supabase:push": "npx supabase db push",
+    "supabase:push": "npx supabase db push --linked",
+    "supabase:push:yes": "yes | npx supabase db push --linked",
     "supabase:link": "npx supabase link --project-ref qetpaadmjgyscdzfojwz",
     "supabase:deploy-functions": "npx supabase functions deploy syndicate-write --project-ref qetpaadmjgyscdzfojwz && npx supabase functions deploy claim-reward --project-ref qetpaadmjgyscdzfojwz",
     "supabase:reset": "npx supabase db reset"

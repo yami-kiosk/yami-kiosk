@@ -34,6 +34,9 @@ Open [http://localhost:5173](http://localhost:5173)
    - `supabase/migrations/20260622200000_balance_autoclick_server.sql`
    - `supabase/migrations/20260622210000_sync_returns_phase.sql`
    - `supabase/migrations/20260622220000_gameplay_click_fix.sql`
+   - `supabase/migrations/20260622230000_security_hardening_apply.sql`
+
+   Or via CLI (linked project): `npm run supabase:push:yes`
 
 2. Deploy edge function `syndicate-write` (required for register/sync/payout writes):
    ```bash
