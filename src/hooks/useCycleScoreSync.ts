@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react'
-import { toast } from 'sonner'
 import { syncCycleScoreRemote } from '../lib/supabase/api'
 import { isSupabaseConfigured } from '../lib/supabase/client'
 import { getCurrentSeasonId } from '../store/seasonConfig'
@@ -36,10 +35,7 @@ export function useCycleScoreSync(enabled: boolean) {
 
           if (result.clamped && !clampWarned.current) {
             clampWarned.current = true
-            toast.error(
-              'ICE AUDIT — season score clamped to legitimate income rate.',
-              { className: 'yami-toast', id: 'sync-clamp' },
-            )
+            console.info('[sync] season score adjusted to server cap')
           }
         }
       } catch (err) {
