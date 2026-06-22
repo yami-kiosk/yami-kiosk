@@ -16,6 +16,8 @@ export const INJECT_MIN_INTERVAL_MS = 16
 export const INJECT_RATE_WINDOW_MS = 2_000
 /** Max full-reward clicks within the window (~14 clicks/sec). */
 export const INJECT_RATE_MAX_IN_WINDOW = 28
+/** Min gap between rate-cap warning toasts (avoid spam). */
+export const INJECT_WARNING_COOLDOWN_MS = 4_000
 
 export type InjectVerdict = 'ok' | 'too_fast' | 'rate_cap'
 
@@ -30,11 +32,13 @@ export interface InjectGuardResult {
 interface GuardState {
   lastInjectAt: number
   timestamps: number[]
+  lastWarningAt: number
 }
 
 const state: GuardState = {
   lastInjectAt: 0,
   timestamps: [],
+  lastWarningAt: 0,
 }
 
 function pruneTimestamps(now: number): void {
@@ -63,13 +67,17 @@ export function evaluateInjectAttempt(now = Date.now()): InjectGuardResult {
   state.timestamps.push(now)
 
   if (state.timestamps.length > INJECT_RATE_MAX_IN_WINDOW) {
-    // Over sustained human speed — no reward, but no penalty / no toast.
+    // Over sustained human speed — no reward. Warn (throttled) about autoclick.
+    const shouldWarn =
+      now - state.lastWarningAt >= INJECT_WARNING_COOLDOWN_MS
+    if (shouldWarn) state.lastWarningAt = now
     return {
       verdict: 'rate_cap',
       rewardMultiplier: 0,
       allowCombo: true,
-      message: null,
-      shouldWarn: false,
+      message:
+        'ICE TRACE — inject rate exceeds human limits. Autoclick yields no $YEN.',
+      shouldWarn,
     }
   }
 
