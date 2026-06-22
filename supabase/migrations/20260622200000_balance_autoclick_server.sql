@@ -1,18 +1,14 @@
--- Relax anti-cheat for legitimate fast clicking (player feedback)
--- Safe to run even if migration 800 was skipped (adds missing audit column).
-
-alter table public.cycle_scores
-  add column if not exists last_clamp_reason text;
-
-comment on column public.cycle_scores.last_clamp_reason is
-  'rate_cap | initial_cap — audit only; no longer blocks claims.';
+-- Balanced anti-autoclick: server enforces fair caps, client stays permissive.
+-- Tighter than migration 900 (blocks autoclick on leaderboard) but looser than 800
+-- (fast human clicking + combo still OK after sync-interval fix).
 
 create or replace function public.max_active_yen_per_minute(p_phase smallint)
 returns numeric
 language sql
 immutable
 as $$
-  select 480.0
+  -- ~12–14 full-reward human clicks/sec burst with combo/doctrine headroom
+  select 220.0
     * ((public.phase_active_base(p_phase) + 20.0) / 60.0)
     * 1.234;
 $$;
@@ -22,7 +18,7 @@ returns numeric
 language sql
 immutable
 as $$
-  select public.phase_passive_base(p_phase) * 4.5 * 2.5;
+  select public.phase_passive_base(p_phase) * 4.5 * 2.0;
 $$;
 
 create or replace function public.sync_cycle_score(
@@ -50,7 +46,7 @@ declare
   v_next numeric;
   v_clamped boolean := false;
   v_clamp_reason text := null;
-  v_sync_slack constant numeric := 2.2;
+  v_sync_slack constant numeric := 1.72;
   v_first_sync_hours constant numeric := 8.0;
   v_first_sync_slack constant numeric := 1.6;
   v_first_sync_phase_cap constant smallint := 5;
@@ -141,6 +137,14 @@ begin
     phase = v_effective_phase,
     last_synced_at = v_now,
     updated_at = v_now,
+    sync_clamp_count = sync_clamp_count + case
+      when v_clamped and v_clamp_reason = 'rate_cap' then 1
+      else 0
+    end,
+    last_clamped_at = case
+      when v_clamped and v_clamp_reason = 'rate_cap' then v_now
+      else last_clamped_at
+    end,
     last_clamp_reason = coalesce(v_clamp_reason, last_clamp_reason)
   where wallet_pubkey = v_wallet and season_id = p_season_id;
 
@@ -154,7 +158,10 @@ begin
 end;
 $$;
 
--- Claim block removed from sync_clamp_count (counter no longer incremented)
+comment on column public.cycle_scores.last_clamp_reason is
+  'rate_cap | initial_cap — rate_cap increments sync_clamp_count (autoclick audit).';
+
+-- Block payout for persistent server-side clamp offenders (autoclick / score spoof)
 create or replace function public.begin_season_claim(p_wallet text, p_season_id integer)
 returns jsonb
 language plpgsql
@@ -199,6 +206,19 @@ begin
     );
   end if;
 
+  if exists (
+    select 1 from public.cheat_suspects cs
+    where cs.wallet_pubkey = trim(p_wallet)
+      and cs.sync_clamp_count >= 30
+      and cs.clamped_recently = true
+  ) then
+    return jsonb_build_object(
+      'success', false,
+      'code', 'BLOCKED',
+      'message', 'Payout blocked — syndicate audit flag on this node.'
+    );
+  end if;
+
   update public.season_payouts
      set status = 'processing',
          claim_error = null
@@ -214,10 +234,3 @@ begin
   );
 end;
 $$;
-
--- Reset false-positive clamp counts from earlier strict caps
-update public.cycle_scores
-set sync_clamp_count = 0,
-    last_clamped_at = null,
-    last_clamp_reason = null
-where sync_clamp_count > 0;

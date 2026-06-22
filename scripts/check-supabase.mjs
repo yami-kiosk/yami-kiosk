@@ -118,17 +118,23 @@ const rateCheck = await fetch(`${normalizedUrl}/rest/v1/rpc/max_yen_per_minute`,
 
 if (rateCheck.ok) {
   const rate = Number(await rateCheck.json())
-  const expectedMin = 500
-  if (rate >= expectedMin) {
-    console.log(`✓ max_yen_per_minute(P3) = ${rate} (passive + active cap — migration 800 OK)`)
-  } else {
-    console.error(`\n⚠ max_yen_per_minute(P3) = ${rate} — expected ~589+ after migration 800`)
+  const expectedMin = 580
+  const expectedMax = 820
+  if (rate >= expectedMin && rate <= expectedMax) {
+    console.log(`✓ max_yen_per_minute(P3) = ${rate} (balanced server cap — migration 1000 OK)`)
+  } else if (rate > 900) {
+    console.error(`\n⚠ max_yen_per_minute(P3) = ${rate} — too loose (migration 900). Autoclick can abuse leaderboard.`)
     console.error('\n→ Supabase Dashboard → SQL Editor → run:')
-    console.error('  supabase/migrations/20260622180000_security_balance.sql')
+    console.error('  supabase/migrations/20260622200000_balance_autoclick_server.sql')
+    process.exit(1)
+  } else {
+    console.error(`\n⚠ max_yen_per_minute(P3) = ${rate} — expected ~580–820 after migration 1000`)
+    console.error('\n→ Supabase Dashboard → SQL Editor → run:')
+    console.error('  supabase/migrations/20260622200000_balance_autoclick_server.sql')
     process.exit(1)
   }
 } else {
-  console.warn('⚠ max_yen_per_minute RPC missing — run migrations 400+800')
+  console.warn('⚠ max_yen_per_minute RPC missing — run migrations 400+1000')
   process.exit(1)
 }
 

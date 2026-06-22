@@ -82,13 +82,21 @@ export function MusicPlayer() {
 
   const applyAudioSettings = useCallback(
     (audio: HTMLAudioElement) => {
-      audio.loop = true
+      audio.loop = false
       audio.preload = 'auto'
       audio.volume = volume
       audio.muted = false
     },
     [volume],
   )
+
+  const advanceToNextTrack = useCallback(() => {
+    setTrackIndex((current) => {
+      const next = (current + 1) % PLAYLIST.length
+      saveTrackIndex(next)
+      return next
+    })
+  }, [])
 
   const attemptPlay = useCallback(async (): Promise<boolean> => {
     const audio = audioRef.current
@@ -215,10 +223,12 @@ export function MusicPlayer() {
         key={track.id}
         ref={bindAudioRef}
         src={track.src}
-        loop
         preload="auto"
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
+        onEnded={() => {
+          if (wantPlayRef.current) advanceToNextTrack()
+        }}
         onError={() => {
           console.warn('[music] failed to load', track.src)
           setPlaying(false)

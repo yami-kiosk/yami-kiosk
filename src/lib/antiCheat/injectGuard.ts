@@ -1,6 +1,6 @@
-/** Client-side inject guard — minimal sanity checks only; server sync_cycle_score is authoritative. */
+/** Client-side inject guard — minimal UX checks only; server sync_cycle_score is authoritative. */
 
-/** Block only same-frame / double-fire (< ~1 frame at 60fps). */
+/** Block same-frame double-fire only. Autoclick is capped server-side on sync. */
 export const INJECT_MIN_INTERVAL_MS = 16
 
 export type InjectVerdict = 'ok' | 'too_fast'

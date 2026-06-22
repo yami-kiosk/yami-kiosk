@@ -30,6 +30,8 @@ Open [http://localhost:5173](http://localhost:5173)
    - `supabase/migrations/20260622160000_payout_address.sql`
    - `supabase/migrations/20260622170000_season_claims.sql`
    - `supabase/migrations/20260622180000_security_balance.sql`
+   - `supabase/migrations/20260622190000_relax_anticheat.sql`
+   - `supabase/migrations/20260622200000_balance_autoclick_server.sql`
 
 2. Deploy edge function `syndicate-write` (required for register/sync/payout writes):
    ```bash
