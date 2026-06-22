@@ -118,20 +118,22 @@ const rateCheck = await fetch(`${normalizedUrl}/rest/v1/rpc/max_yen_per_minute`,
 
 if (rateCheck.ok) {
   const rate = Number(await rateCheck.json())
-  const expectedMin = 580
-  const expectedMax = 820
+  const expectedMin = 620
+  const expectedMax = 980
   if (rate >= expectedMin && rate <= expectedMax) {
-    console.log(`✓ max_yen_per_minute(P3) = ${rate} (balanced server cap — migration 1000 OK)`)
-  } else if (rate > 900) {
+    console.log(`✓ max_yen_per_minute(P3) = ${rate} (gameplay-friendly server cap — migration 2200 OK)`)
+  } else if (rate > 1000) {
     console.error(`\n⚠ max_yen_per_minute(P3) = ${rate} — too loose (migration 900). Autoclick can abuse leaderboard.`)
     console.error('\n→ Supabase Dashboard → SQL Editor → run:')
-    console.error('  supabase/migrations/20260622200000_balance_autoclick_server.sql')
+    console.error('  supabase/migrations/20260622220000_gameplay_click_fix.sql')
+    process.exit(1)
+  } else if (rate < 620) {
+    console.error(`\n⚠ max_yen_per_minute(P3) = ${rate} — too strict for fast manual play.`)
+    console.error('\n→ Supabase Dashboard → SQL Editor → run:')
+    console.error('  supabase/migrations/20260622220000_gameplay_click_fix.sql')
     process.exit(1)
   } else {
-    console.error(`\n⚠ max_yen_per_minute(P3) = ${rate} — expected ~580–820 after migration 1000`)
-    console.error('\n→ Supabase Dashboard → SQL Editor → run:')
-    console.error('  supabase/migrations/20260622200000_balance_autoclick_server.sql')
-    process.exit(1)
+    console.log(`✓ max_yen_per_minute(P3) = ${rate} (acceptable)`)
   }
 } else {
   console.warn('⚠ max_yen_per_minute RPC missing — run migrations 400+1000')
