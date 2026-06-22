@@ -7,11 +7,16 @@ import {
   signBurnerMessage,
 } from '../wallet/syndicateMessages'
 
-export type SyndicateWriteAction =
-  | 'register'
-  | 'set_payout'
-  | 'sync_score'
-  | 'register_payout'
+function isEdgeFunctionInvokeFailure(message: string): boolean {
+  const lower = message.toLowerCase()
+  return (
+    lower.includes('edge function') ||
+    lower.includes('functionsfetcherror') ||
+    lower.includes('failed to send a request') ||
+    lower.includes('function not found') ||
+    lower.includes('404')
+  )
+}
 
 async function invokeSyndicateWrite(
   body: Record<string, unknown>,
@@ -31,10 +36,48 @@ async function invokeSyndicateWrite(
 
   if (error) {
     console.warn('[syndicate-write]', error.message)
-    return { success: false, message: error.message, code: 'NETWORK' }
+    return {
+      success: false,
+      message: error.message,
+      code: 'NETWORK',
+      edgeUnavailable: isEdgeFunctionInvokeFailure(error.message),
+    }
   }
 
   return (data ?? {}) as Record<string, unknown>
+}
+
+async function rpcFallback(
+  edgeResult: Record<string, unknown>,
+  run: () => PromiseLike<{ data: unknown; error: { message: string } | null }>,
+): Promise<Record<string, unknown>> {
+  if (edgeResult.success === true) return edgeResult
+  if (edgeResult.edgeUnavailable !== true) return edgeResult
+
+  const supabase = getSupabase()
+  if (!supabase) return edgeResult
+
+  console.warn('[syndicate-write] edge offline — falling back to direct RPC')
+  const { data, error } = await run()
+
+  if (error) {
+    const needsDeploy = error.message.toLowerCase().includes('permission')
+    return {
+      success: false,
+      code: 'NETWORK',
+      message: needsDeploy
+        ? 'Edge function not deployed. Run: supabase functions deploy syndicate-write'
+        : error.message,
+    }
+  }
+
+  if (data == null) {
+    return { success: false, message: 'Empty RPC response.' }
+  }
+
+  return typeof data === 'object' && data !== null
+    ? (data as Record<string, unknown>)
+    : { success: false, message: 'Invalid RPC response.' }
 }
 
 export async function signedRegisterOperator(
@@ -45,13 +88,20 @@ export async function signedRegisterOperator(
   const message = buildRegisterMessage(handle, wallet, issuedAt)
   const signature = signBurnerMessage(message, wallet)
 
-  return invokeSyndicateWrite({
+  const edge = await invokeSyndicateWrite({
     action: 'register',
     wallet,
     handle,
     message,
     signature,
   })
+
+  return rpcFallback(edge, async () =>
+    getSupabase()!.rpc('register_operator', {
+      p_handle: handle,
+      p_wallet: wallet,
+    }),
+  )
 }
 
 export async function signedSetOperatorPayout(
@@ -62,13 +112,20 @@ export async function signedSetOperatorPayout(
   const message = buildPayoutMessage(wallet, payoutPubkey, issuedAt)
   const signature = signBurnerMessage(message, wallet)
 
-  return invokeSyndicateWrite({
+  const edge = await invokeSyndicateWrite({
     action: 'set_payout',
     wallet,
     payoutPubkey,
     message,
     signature,
   })
+
+  return rpcFallback(edge, async () =>
+    getSupabase()!.rpc('set_operator_payout', {
+      p_wallet: wallet,
+      p_payout_pubkey: payoutPubkey ?? '',
+    }),
+  )
 }
 
 export async function signedSyncCycleScore(
@@ -81,7 +138,7 @@ export async function signedSyncCycleScore(
   const message = buildSyncScoreMessage(seasonId, wallet, yenEarned, phase, issuedAt)
   const signature = signBurnerMessage(message, wallet)
 
-  return invokeSyndicateWrite({
+  const edge = await invokeSyndicateWrite({
     action: 'sync_score',
     wallet,
     seasonId,
@@ -90,6 +147,15 @@ export async function signedSyncCycleScore(
     message,
     signature,
   })
+
+  return rpcFallback(edge, async () =>
+    getSupabase()!.rpc('sync_cycle_score', {
+      p_wallet: wallet,
+      p_season_id: seasonId,
+      p_yen_earned: yenEarned,
+      p_phase: phase,
+    }),
+  )
 }
 
 export async function signedRegisterSeasonPayout(
@@ -100,11 +166,18 @@ export async function signedRegisterSeasonPayout(
   const message = buildRegisterPayoutMessage(seasonId, wallet, issuedAt)
   const signature = signBurnerMessage(message, wallet)
 
-  return invokeSyndicateWrite({
+  const edge = await invokeSyndicateWrite({
     action: 'register_payout',
     wallet,
     seasonId,
     message,
     signature,
   })
+
+  return rpcFallback(edge, async () =>
+    getSupabase()!.rpc('register_season_payout', {
+      p_wallet: wallet,
+      p_season_id: seasonId,
+    }),
+  )
 }

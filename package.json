@@ -13,6 +13,7 @@
     "supabase:stop": "npx supabase stop",
     "supabase:push": "npx supabase db push",
     "supabase:link": "npx supabase link --project-ref qetpaadmjgyscdzfojwz",
+    "supabase:deploy-functions": "npx supabase functions deploy syndicate-write --project-ref qetpaadmjgyscdzfojwz && npx supabase functions deploy claim-reward --project-ref qetpaadmjgyscdzfojwz",
     "supabase:reset": "npx supabase db reset"
   },
   "dependencies": {
