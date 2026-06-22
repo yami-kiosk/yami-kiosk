@@ -9,6 +9,7 @@ const PLAYLIST = [
 
 const VOLUME_STORAGE_KEY = 'yami-music-volume'
 const TRACK_STORAGE_KEY = 'yami-music-track'
+const AUTOPLAY_KEY = 'yami-music-autoplay'
 const VOLUME_STEP = 0.1
 const DEFAULT_VOLUME = 0.5
 
@@ -36,6 +37,15 @@ function loadStoredTrackIndex(): number {
   }
 }
 
+function loadAutoplayPreference(): boolean {
+  try {
+    const raw = localStorage.getItem(AUTOPLAY_KEY)
+    return raw !== '0'
+  } catch {
+    return true
+  }
+}
+
 function saveVolume(volume: number): void {
   try {
     localStorage.setItem(VOLUME_STORAGE_KEY, String(volume))
@@ -52,34 +62,111 @@ function saveTrackIndex(index: number): void {
   }
 }
 
+function saveAutoplayPreference(enabled: boolean): void {
+  try {
+    localStorage.setItem(AUTOPLAY_KEY, enabled ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
+
 export function MusicPlayer() {
   const audioRef = useRef<HTMLAudioElement>(null)
+  const wantPlayRef = useRef(loadAutoplayPreference())
+  const unlockBoundRef = useRef(false)
   const [playing, setPlaying] = useState(false)
   const [volume, setVolume] = useState(loadStoredVolume)
   const [trackIndex, setTrackIndex] = useState(loadStoredTrackIndex)
 
   const track = PLAYLIST[trackIndex]
 
-  useEffect(() => {
+  const applyAudioSettings = useCallback(
+    (audio: HTMLAudioElement) => {
+      audio.loop = true
+      audio.preload = 'auto'
+      audio.volume = volume
+      audio.muted = false
+    },
+    [volume],
+  )
+
+  const attemptPlay = useCallback(async (): Promise<boolean> => {
     const audio = audioRef.current
-    if (!audio) return
-    audio.loop = true
-    audio.volume = volume
-  }, [volume])
+    if (!audio) return false
 
-  useEffect(() => {
-    const audio = audioRef.current
-    if (!audio) return
+    applyAudioSettings(audio)
 
-    const wasPlaying = !audio.paused
-    audio.pause()
-    audio.src = track.src
-    audio.load()
-
-    if (wasPlaying) {
-      void audio.play().catch(() => setPlaying(false))
+    try {
+      await audio.play()
+      wantPlayRef.current = true
+      saveAutoplayPreference(true)
+      setPlaying(true)
+      return true
+    } catch {
+      try {
+        audio.muted = true
+        await audio.play()
+        audio.muted = false
+        audio.volume = volume
+        wantPlayRef.current = true
+        saveAutoplayPreference(true)
+        setPlaying(true)
+        return true
+      } catch {
+        setPlaying(false)
+        return false
+      }
     }
-  }, [track.src])
+  }, [applyAudioSettings, volume])
+
+  const bindAudioRef = useCallback(
+    (node: HTMLAudioElement | null) => {
+      audioRef.current = node
+      if (!node) return
+
+      applyAudioSettings(node)
+
+      if (wantPlayRef.current) {
+        void node.play().then(
+          () => setPlaying(true),
+          () => setPlaying(false),
+        )
+      }
+    },
+    [applyAudioSettings],
+  )
+
+  useEffect(() => {
+    const audio = audioRef.current
+    if (audio) applyAudioSettings(audio)
+  }, [volume, applyAudioSettings])
+
+  useEffect(() => {
+    if (!wantPlayRef.current) return
+
+    const audio = audioRef.current
+    if (!audio) return
+
+    applyAudioSettings(audio)
+    void audio.play().then(
+      () => setPlaying(true),
+      () => setPlaying(false),
+    )
+  }, [trackIndex, applyAudioSettings])
+
+  useEffect(() => {
+    if (unlockBoundRef.current) return
+    unlockBoundRef.current = true
+
+    void attemptPlay()
+
+    const unlock = () => {
+      void attemptPlay()
+    }
+
+    document.addEventListener('pointerdown', unlock, { once: true })
+    return () => document.removeEventListener('pointerdown', unlock)
+  }, [attemptPlay])
 
   const togglePlay = useCallback(async () => {
     const audio = audioRef.current
@@ -87,28 +174,22 @@ export function MusicPlayer() {
 
     if (playing) {
       audio.pause()
+      wantPlayRef.current = false
+      saveAutoplayPreference(false)
       setPlaying(false)
       return
     }
 
-    try {
-      await audio.play()
-      setPlaying(true)
-    } catch {
-      setPlaying(false)
-    }
-  }, [playing])
+    await attemptPlay()
+  }, [playing, attemptPlay])
 
-  const changeTrack = useCallback(
-    (delta: number) => {
-      setTrackIndex((current) => {
-        const next = (current + delta + PLAYLIST.length) % PLAYLIST.length
-        saveTrackIndex(next)
-        return next
-      })
-    },
-    [],
-  )
+  const changeTrack = useCallback((delta: number) => {
+    setTrackIndex((current) => {
+      const next = (current + delta + PLAYLIST.length) % PLAYLIST.length
+      saveTrackIndex(next)
+      return next
+    })
+  }, [])
 
   const volumeUp = useCallback(() => {
     setVolume((current) => {
@@ -131,12 +212,17 @@ export function MusicPlayer() {
   return (
     <>
       <audio
-        ref={audioRef}
+        key={track.id}
+        ref={bindAudioRef}
         src={track.src}
-        preload="auto"
         loop
+        preload="auto"
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
+        onError={() => {
+          console.warn('[music] failed to load', track.src)
+          setPlaying(false)
+        }}
       />
 
       <div
