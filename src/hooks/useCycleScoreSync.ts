@@ -10,9 +10,6 @@ const SYNC_INTERVAL_MS = 30_000
 export function useCycleScoreSync(enabled: boolean) {
   const walletPublicKey = useGameStore((s) => s.walletPublicKey)
   const operatorName = useGameStore((s) => s.operatorName)
-  const seasonYenEarned = useGameStore((s) => s.seasonYenEarned)
-  const phase = useGameStore((s) => s.phase)
-  const activeSeasonId = useGameStore((s) => s.activeSeasonId)
   const syncing = useRef(false)
   const clampWarned = useRef(false)
 
@@ -20,16 +17,19 @@ export function useCycleScoreSync(enabled: boolean) {
     if (!enabled || !isSupabaseConfigured()) return
     if (!walletPublicKey || !operatorName) return
 
+    clampWarned.current = false
+
     const sync = async () => {
       if (syncing.current) return
       syncing.current = true
       try {
-        const seasonId = activeSeasonId || getCurrentSeasonId()
+        const state = useGameStore.getState()
+        const seasonId = state.activeSeasonId || getCurrentSeasonId()
         const result = await syncCycleScoreRemote(
           walletPublicKey,
           seasonId,
-          seasonYenEarned,
-          phase,
+          state.seasonYenEarned,
+          state.phase,
         )
         if (result.success && result.yen_earned != null) {
           useGameStore.setState({ seasonYenEarned: result.yen_earned })
@@ -52,12 +52,5 @@ export function useCycleScoreSync(enabled: boolean) {
     void sync()
     const id = window.setInterval(() => void sync(), SYNC_INTERVAL_MS)
     return () => window.clearInterval(id)
-  }, [
-    enabled,
-    walletPublicKey,
-    operatorName,
-    seasonYenEarned,
-    phase,
-    activeSeasonId,
-  ])
+  }, [enabled, walletPublicKey, operatorName])
 }
