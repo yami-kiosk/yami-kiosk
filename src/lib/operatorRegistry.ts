@@ -22,7 +22,7 @@ export type RegisterOperatorCode =
   | 'NETWORK'
 
 export type RegisterOperatorResult =
-  | { success: true; name: string }
+  | { success: true; name: string; localOnly?: boolean }
   | { success: false; code: RegisterOperatorCode; message: string }
 
 function loadRegistry(): OperatorRegistry {
@@ -202,7 +202,7 @@ export async function registerOperatorAccount(
   const existingLocal = getRegisteredNameForWallet(walletPublicKey)
   if (existingLocal) {
     if (existingLocal === name) {
-      return { success: true, name: existingLocal }
+      return { success: true, name: existingLocal, localOnly: true }
     }
     return {
       success: false,
@@ -211,5 +211,9 @@ export async function registerOperatorAccount(
     }
   }
 
-  return registerOperatorLocal(name, walletPublicKey)
+  const local = registerOperatorLocal(name, walletPublicKey)
+  if (local.success) {
+    return { ...local, localOnly: true }
+  }
+  return local
 }

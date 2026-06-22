@@ -1,16 +1,17 @@
 /** Client-side inject anti-cheat — complements server sync_cycle_score rate caps. */
 
-export const INJECT_MIN_INTERVAL_MS = 95
+export const INJECT_MIN_INTERVAL_MS = 85
 export const INJECT_WINDOW_MS = 10_000
-/** ~7.5 clicks/sec sustained — above typical human spam, below most autoclickers. */
-export const INJECT_MAX_PER_WINDOW = 75
+/** ~8.5 clicks/sec sustained before soft rate cap. */
+export const INJECT_MAX_PER_WINDOW = 85
 
 export const BOT_SAMPLE_SIZE = 24
-export const BOT_MIN_SAMPLES = 16
-/** Inter-click timing too uniform → likely script (coefficient of variation). */
-export const BOT_MAX_CV = 0.075
+export const BOT_MIN_SAMPLES = 22
+/** Only flag extremely uniform timing (real autoclickers ≈ CV < 0.03). */
+export const BOT_MAX_CV = 0.032
 
-export const BOT_PENALTY_MS = 45_000
+export const BOT_PENALTY_MS = 22_000
+export const BOT_MIN_CLICKS_FOR_FLAG = 55
 export const WARNING_COOLDOWN_MS = 8_000
 
 export type InjectVerdict = 'ok' | 'too_fast' | 'rate_cap' | 'bot'
@@ -124,7 +125,7 @@ export function evaluateInjectAttempt(now = Date.now()): InjectGuardResult {
     }
   }
 
-  if (detectBotPattern()) {
+  if (detectBotPattern() && state.timestamps.length >= BOT_MIN_CLICKS_FOR_FLAG) {
     state.botFlaggedUntil = now + BOT_PENALTY_MS
     return pushWarning(
       'AUTOMATION SIGNATURE — inject script blocked by ICE.',

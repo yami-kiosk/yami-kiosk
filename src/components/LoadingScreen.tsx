@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import {
   getRegisteredNameForWallet,
   resolveRegisteredNameForWallet,
@@ -91,6 +92,14 @@ export function LoadingScreen({
       if (!result.success) {
         setError(result.message)
         return
+      }
+      if (result.localOnly) {
+        toast.warning('Handle saved on this device only — not on syndicate network.', {
+          description:
+            'Set VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY on Vercel, redeploy, then refresh.',
+          className: 'yami-toast',
+          duration: 8000,
+        })
       }
       setLockedName(result.name)
       onEnter()
