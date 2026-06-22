@@ -13,7 +13,7 @@ immutable
 as $$
   select p_address is not null
     and length(trim(p_address)) between 32 and 44
-    and trim(p_address) ~ '^[1-9A-HJ-NP-Za-km-z]+$';43
+    and trim(p_address) ~ '^[1-9A-HJ-NP-Za-km-z]+$';
 $$;
 
 create or replace function public.get_operator_payout(p_wallet text)

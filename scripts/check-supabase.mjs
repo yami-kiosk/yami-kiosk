@@ -118,18 +118,17 @@ const rateCheck = await fetch(`${normalizedUrl}/rest/v1/rpc/max_yen_per_minute`,
 
 if (rateCheck.ok) {
   const rate = Number(await rateCheck.json())
-  const expectedMin = 225
+  const expectedMin = 500
   if (rate >= expectedMin) {
-    console.log(`✓ max_yen_per_minute(P3) = ${rate} (passive + active cap — migration 400 OK)`)
+    console.log(`✓ max_yen_per_minute(P3) = ${rate} (passive + active cap — migration 800 OK)`)
   } else {
-    console.error(`\n⚠ max_yen_per_minute(P3) = ${rate} — still OLD caps (expected ~228+)`)
-    console.error('  Audit columns may exist but sync_cycle_score is not upgraded yet.')
+    console.error(`\n⚠ max_yen_per_minute(P3) = ${rate} — expected ~589+ after migration 800`)
     console.error('\n→ Supabase Dashboard → SQL Editor → run:')
-    console.error('  supabase/migrations/20260622140000_server_active_income_cap.sql')
+    console.error('  supabase/migrations/20260622180000_security_balance.sql')
     process.exit(1)
   }
 } else {
-  console.warn('⚠ max_yen_per_minute RPC missing — run migration 20260622140000')
+  console.warn('⚠ max_yen_per_minute RPC missing — run migrations 400+800')
   process.exit(1)
 }
 
@@ -142,11 +141,10 @@ const suspectsCheck = await fetch(
   },
 )
 
-if (suspectsCheck.ok) {
-  const suspects = await suspectsCheck.json()
-  console.log(
-    `✓ cheat_suspects view OK (${Array.isArray(suspects) ? suspects.length : 0} flagged rows sampled)`,
-  )
+if (suspectsCheck.status === 401 || suspectsCheck.status === 403) {
+  console.log('✓ cheat_suspects locked down (admin/service_role only — migration 800 OK)')
+} else if (suspectsCheck.ok) {
+  console.warn('⚠ cheat_suspects still public — run migration 20260622180000_security_balance.sql')
 } else {
   console.warn('⚠ cheat_suspects view missing — run migration 20260622150000')
 }

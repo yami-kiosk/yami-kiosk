@@ -29,8 +29,14 @@ Open [http://localhost:5173](http://localhost:5173)
    - `supabase/migrations/20260622150000_cheat_suspects_view.sql`
    - `supabase/migrations/20260622160000_payout_address.sql`
    - `supabase/migrations/20260622170000_season_claims.sql`
+   - `supabase/migrations/20260622180000_security_balance.sql`
 
-2. Verify: `npm run supabase:check`
+2. Deploy edge function `syndicate-write` (required for register/sync/payout writes):
+   ```bash
+   supabase functions deploy syndicate-write
+   ```
+
+3. Verify: `npm run supabase:check`
 
 ## Token launch (on-chain claim)
 
@@ -50,6 +56,7 @@ npx supabase secrets set TREASURY_SECRET_KEY=base58_treasury_private_key
 npx supabase secrets set YAMI_MINT=SameMintAsAbove
 npx supabase secrets set SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
 npx supabase secrets set YAMI_TOKEN_DECIMALS=6
+npx supabase functions deploy syndicate-write
 npx supabase functions deploy claim-reward
 ```
 

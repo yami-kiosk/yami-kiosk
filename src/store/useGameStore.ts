@@ -71,7 +71,7 @@ import {
   getBurnerSecretKeyBase58,
   loadOrCreateBurnerKeypair,
 } from './walletUtils'
-import { getCurrentSeasonId } from './seasonConfig'
+import { getCurrentSeasonId, LEADERBOARD_TOP_N } from './seasonConfig'
 import {
   buildSeasonEndModal,
   computeSeasonPayout,
@@ -95,6 +95,9 @@ import {
   evaluateInjectAttempt,
   type InjectVerdict,
 } from '../lib/antiCheat/injectGuard'
+
+let syncSeasonInFlight: Promise<SeasonSyncResult> | null = null
+let walletInitStarted = false
 
 export interface InjectPowerResult {
   grantedYen: number
@@ -362,6 +365,8 @@ export const useGameStore = create<GameState>()(
           void get().syncOperatorFromRegistry()
           return
         }
+        if (walletInitStarted) return
+        walletInitStarted = true
 
         const keypair = loadOrCreateBurnerKeypair()
         const walletPublicKey = keypair.publicKey.toBase58()
@@ -1132,58 +1137,82 @@ export const useGameStore = create<GameState>()(
       },
 
       syncSeason: async (now = Date.now()) => {
-        const state = get()
-        if (!shouldRollSeason(state.activeSeasonId, now)) {
-          return { rolledOver: false, modal: null }
-        }
+        if (syncSeasonInFlight) return syncSeasonInFlight
 
-        const endedSeasonId = state.activeSeasonId
-        const { payoutYami, qualified, rank, seasonYenEarned } =
-          await computeSeasonPayout({
-            phase: state.phase,
-            seasonYenEarned: state.seasonYenEarned,
+        syncSeasonInFlight = (async (): Promise<SeasonSyncResult> => {
+          const state = get()
+          if (!shouldRollSeason(state.activeSeasonId, now)) {
+            return { rolledOver: false, modal: null }
+          }
+
+          const endedSeasonId = state.activeSeasonId
+          const { payoutYami, qualified, rank, seasonYenEarned } =
+            await computeSeasonPayout({
+              phase: state.phase,
+              seasonYenEarned: state.seasonYenEarned,
+              walletPublicKey: state.walletPublicKey,
+              operatorName: state.operatorName,
+              seasonId: endedSeasonId,
+              now,
+            })
+
+          const after = get()
+          if (
+            after.activeSeasonId !== endedSeasonId ||
+            !shouldRollSeason(endedSeasonId, now)
+          ) {
+            return { rolledOver: false, modal: null }
+          }
+
+          const modal = buildSeasonEndModal(
+            endedSeasonId,
+            payoutYami,
+            qualified,
+            seasonYenEarned,
+            rank,
+            state.walletPublicKey,
+          )
+
+          let entitlementError: string | null = null
+
+          if (
+            state.walletPublicKey &&
+            state.operatorName &&
+            payoutYami > 0 &&
+            qualified &&
+            rank &&
+            rank <= LEADERBOARD_TOP_N
+          ) {
+            const entitlement = await registerSeasonEntitlement(
+              state.walletPublicKey,
+              endedSeasonId,
+            )
+            if (!entitlement.success) {
+              entitlementError =
+                entitlement.message ?? 'Failed to register season payout.'
+            }
+          }
+
+          const creditInGame = payoutYami > 0 && !isClaimEnabled()
+
+          set({
+            ...getGrindResetState(),
+            yamiBalance: state.yamiBalance + (creditInGame ? payoutYami : 0),
+            activeSeasonId: getCurrentSeasonId(now),
+            lastSeasonPayoutYami: payoutYami,
+            pendingSeasonEndModal: modal,
             walletPublicKey: state.walletPublicKey,
-            operatorName: state.operatorName,
-            seasonId: endedSeasonId,
-            now,
+            isWalletReady: state.isWalletReady,
           })
 
-        const modal = buildSeasonEndModal(
-          endedSeasonId,
-          payoutYami,
-          qualified,
-          seasonYenEarned,
-          rank,
-          state.walletPublicKey,
-        )
+          return { rolledOver: true, modal, entitlementError }
+        })()
 
-        if (
-          state.walletPublicKey &&
-          state.operatorName &&
-          payoutYami > 0 &&
-          qualified &&
-          rank &&
-          rank <= 10
-        ) {
-          await registerSeasonEntitlement(
-            state.walletPublicKey,
-            endedSeasonId,
-          )
+        try {
+          return await syncSeasonInFlight
+        } finally {
+          syncSeasonInFlight = null
         }
-
-        const creditInGame = payoutYami > 0 && !isClaimEnabled()
-
-        set({
-          ...getGrindResetState(),
-          yamiBalance: state.yamiBalance + (creditInGame ? payoutYami : 0),
-          activeSeasonId: getCurrentSeasonId(now),
-          lastSeasonPayoutYami: payoutYami,
-          pendingSeasonEndModal: modal,
-          walletPublicKey: state.walletPublicKey,
-          isWalletReady: state.isWalletReady,
-        })
-
-        return { rolledOver: true, modal }
       },
 
       dismissSeasonEndModal: () => set({ pendingSeasonEndModal: null }),
@@ -1192,7 +1221,7 @@ export const useGameStore = create<GameState>()(
     }),
     {
       name: STORAGE_KEY,
-      version: 8,
+      version: 9,
       migrate: (persisted, version) => {
         const state = persisted as Record<string, unknown>
         if (
@@ -1233,6 +1262,9 @@ export const useGameStore = create<GameState>()(
         if (version < 8) {
           state.payoutPubkey = null
         }
+        if (version < 9) {
+          state.pendingSeasonEndModal = null
+        }
         return state as typeof persisted
       },
       partialize: (state) => ({
@@ -1268,7 +1300,6 @@ export const useGameStore = create<GameState>()(
         activeSeasonId: state.activeSeasonId,
         seasonYenEarned: state.seasonYenEarned,
         lastSeasonPayoutYami: state.lastSeasonPayoutYami,
-        pendingSeasonEndModal: state.pendingSeasonEndModal,
         operatorName: state.operatorName,
         payoutPubkey: state.payoutPubkey,
         passiveRatePerMin: state.passiveRatePerMin,

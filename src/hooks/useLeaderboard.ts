@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import type { LeaderboardEntry, LocalLeaderboardPlayer } from '../lib/leaderboardOffline'
 import { loadLeaderboard, type LoadedLeaderboard } from '../lib/leaderboardService'
 
@@ -10,12 +11,20 @@ export function useLeaderboard(
 ) {
   const [data, setData] = useState<LoadedLeaderboard | null>(null)
   const [loading, setLoading] = useState(true)
+  const offlineWarned = useRef(false)
 
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
       const result = await loadLeaderboard(seasonId, localPlayer)
       setData(result)
+      if (result.source === 'offline' && !offlineWarned.current) {
+        offlineWarned.current = true
+        toast.warning('Leaderboard offline — showing local syndicate mock data.', {
+          className: 'yami-toast',
+          id: 'leaderboard-offline',
+        })
+      }
     } finally {
       setLoading(false)
     }

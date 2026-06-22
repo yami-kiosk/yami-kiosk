@@ -1,16 +1,10 @@
 import { getSupabase, isSupabaseConfigured } from './client'
-
-function parseRpcJson<T>(data: unknown): T | null {
-  if (data == null) return null
-  if (typeof data === 'string') {
-    try {
-      return JSON.parse(data) as T
-    } catch {
-      return null
-    }
-  }
-  return data as T
-}
+import {
+  signedRegisterOperator,
+  signedRegisterSeasonPayout,
+  signedSetOperatorPayout,
+  signedSyncCycleScore,
+} from './syndicateWrite'
 import type {
   ClaimRewardResult,
   LeaderboardRow,
@@ -18,7 +12,6 @@ import type {
   RegisterOperatorResult,
   RegisterSeasonPayoutResult,
   RpcOperatorPayoutResponse,
-  RpcRegisterResponse,
   RpcSyncResponse,
   RpcWalletRankResponse,
   SeasonPayoutRow,
@@ -56,57 +49,40 @@ export async function registerOperatorRemote(
     }
   }
 
-  const supabase = getSupabase()
-  if (!supabase) {
+  const payload = await signedRegisterOperator(handle, walletPublicKey)
+
+  if (payload.success !== true) {
+    const allowed = ['INVALID', 'TAKEN', 'RESERVED', 'WALLET_BOUND', 'NETWORK'] as const
+    const code = (allowed as readonly string[]).includes(codeRaw)
+      ? (codeRaw as (typeof allowed)[number])
+      : 'NETWORK'
     return {
       success: false,
-      code: 'NETWORK',
-      message: 'Syndicate network offline.',
+      code,
+      message: String(payload.message ?? 'Registration failed.'),
     }
   }
 
-  const { data, error } = await supabase.rpc('register_operator', {
-    p_handle: handle,
-    p_wallet: walletPublicKey,
-  })
-
-  if (error) {
-    console.warn('[supabase] register_operator', error.message)
-    return {
-      success: false,
-      code: 'NETWORK',
-      message: error.message,
-    }
-  }
-
-  const payload = parseRpcJson<RpcRegisterResponse>(data)
-  if (!payload) {
-    return {
-      success: false,
-      code: 'NETWORK',
-      message: 'Invalid response from syndicate network.',
-    }
-  }
-
-  if (payload.success && payload.handle) {
+  if (payload.handle) {
+    const handleResult = String(payload.handle)
     const verified = await fetchOperatorHandle(walletPublicKey)
-    if (verified && verified !== payload.handle) {
+    if (verified && verified !== handleResult) {
       return { success: true, name: verified }
     }
     if (!verified) {
       return {
         success: false,
         code: 'NETWORK',
-        message: 'Registration did not persist — try again.',
+        message: 'Registration did not persist — deploy syndicate-write edge function.',
       }
     }
-    return { success: true, name: payload.handle }
+    return { success: true, name: handleResult }
   }
 
   return {
     success: false,
-    code: (payload.code ?? 'NETWORK') as 'INVALID' | 'TAKEN' | 'RESERVED' | 'WALLET_BOUND' | 'NETWORK',
-    message: payload.message ?? 'Registration failed.',
+    code: 'NETWORK',
+    message: String(payload.message ?? 'Registration failed.'),
   }
 }
 
@@ -116,31 +92,30 @@ export async function syncCycleScoreRemote(
   yenEarned: number,
   phase: number,
 ): Promise<SyncCycleScoreResult> {
-  const supabase = getSupabase()
-  if (!supabase) {
+  if (!isSupabaseConfigured()) {
     return { success: false, message: 'Offline' }
   }
 
-  const { data, error } = await supabase.rpc('sync_cycle_score', {
-    p_wallet: walletPublicKey,
-    p_season_id: seasonId,
-    p_yen_earned: yenEarned,
-    p_phase: phase,
-  })
+  const payload = await signedSyncCycleScore(
+    walletPublicKey,
+    seasonId,
+    yenEarned,
+    phase,
+  )
 
-  if (error) {
-    console.warn('[supabase] sync_cycle_score', error.message)
-    return { success: false, message: error.message }
+  if (payload.message && payload.success === false) {
+    console.warn('[supabase] sync_cycle_score', payload.message)
+    return { success: false, message: String(payload.message) }
   }
 
-  const payload = data as RpcSyncResponse
+  const result = payload as unknown as RpcSyncResponse
   return {
-    success: Boolean(payload.success),
-    yen_earned: payload.yen_earned,
-    clamped: payload.clamped,
-    clamp_reason: payload.clamp_reason ?? null,
-    server_rate_cap: payload.server_rate_cap,
-    message: payload.message,
+    success: Boolean(result.success),
+    yen_earned: result.yen_earned,
+    clamped: result.clamped,
+    clamp_reason: result.clamp_reason ?? null,
+    server_rate_cap: result.server_rate_cap,
+    message: result.message,
   }
 }
 
@@ -244,42 +219,30 @@ export async function setOperatorPayoutRemote(
     }
   }
 
-  const supabase = getSupabase()
-  if (!supabase) {
+  const payload = await signedSetOperatorPayout(walletPublicKey, payoutPubkey)
+
+  if (payload.message && payload.success === false) {
+    console.warn('[supabase] set_operator_payout', payload.message)
     return {
       success: false,
-      code: 'NETWORK',
-      message: 'Syndicate network offline.',
+      code: (payload.code as OperatorPayoutResult['code']) ?? 'NETWORK',
+      message: String(payload.message),
     }
   }
 
-  const { data, error } = await supabase.rpc('set_operator_payout', {
-    p_wallet: walletPublicKey,
-    p_payout_pubkey: payoutPubkey ?? '',
-  })
-
-  if (error) {
-    console.warn('[supabase] set_operator_payout', error.message)
-    return {
-      success: false,
-      code: 'NETWORK',
-      message: error.message,
-    }
-  }
-
-  const payload = data as RpcOperatorPayoutResponse
-  if (payload.success) {
+  const result = payload as unknown as RpcOperatorPayoutResponse
+  if (result.success) {
     return {
       success: true,
-      payoutPubkey: payload.payout_pubkey ?? null,
-      effectivePubkey: payload.effective_pubkey,
+      payoutPubkey: result.payout_pubkey ?? null,
+      effectivePubkey: result.effective_pubkey,
     }
   }
 
   return {
     success: false,
-    code: (payload.code ?? 'NETWORK') as OperatorPayoutResult['code'],
-    message: payload.message ?? 'Failed to save payout address.',
+    code: (result.code ?? 'NETWORK') as OperatorPayoutResult['code'],
+    message: result.message ?? 'Failed to save payout address.',
   }
 }
 
@@ -287,33 +250,29 @@ export async function registerSeasonPayoutRemote(
   walletPublicKey: string,
   seasonId: number,
 ): Promise<RegisterSeasonPayoutResult> {
-  const supabase = getSupabase()
-  if (!supabase) {
+  if (!isSupabaseConfigured()) {
     return { success: false, message: 'Offline' }
   }
 
-  const { data, error } = await supabase.rpc('register_season_payout', {
-    p_wallet: walletPublicKey,
-    p_season_id: seasonId,
-  })
+  const payload = await signedRegisterSeasonPayout(walletPublicKey, seasonId)
 
-  if (error) {
-    console.warn('[supabase] register_season_payout', error.message)
-    return { success: false, message: error.message }
+  if (payload.message && payload.success === false) {
+    console.warn('[supabase] register_season_payout', payload.message)
+    return { success: false, message: String(payload.message) }
   }
 
-  const payload = data as RegisterSeasonPayoutResult
+  const result = payload as unknown as RegisterSeasonPayoutResult
   return {
-    success: Boolean(payload.success),
-    registered: payload.registered,
-    season_id: payload.season_id,
-    rank: payload.rank,
-    amount_yami: payload.amount_yami,
-    status: payload.status,
-    tx_signature: payload.tx_signature ?? null,
-    destination_pubkey: payload.destination_pubkey,
-    code: payload.code,
-    message: payload.message,
+    success: Boolean(result.success),
+    registered: result.registered,
+    season_id: result.season_id,
+    rank: result.rank,
+    amount_yami: result.amount_yami,
+    status: result.status,
+    tx_signature: result.tx_signature ?? null,
+    destination_pubkey: result.destination_pubkey,
+    code: result.code,
+    message: result.message,
   }
 }
 

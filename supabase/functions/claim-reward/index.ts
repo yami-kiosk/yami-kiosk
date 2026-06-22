@@ -252,6 +252,10 @@ Deno.serve(async (req) => {
     )
 
     if (finishError) {
+      await admin.rpc('release_season_claim', {
+        p_wallet: wallet,
+        p_season_id: seasonId,
+      })
       return jsonResponse(
         {
           success: true,

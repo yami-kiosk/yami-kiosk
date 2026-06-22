@@ -49,18 +49,28 @@ function App() {
     if (seasonSynced.current) return
     seasonSynced.current = true
 
-    void syncSeason().then((result) => {
-      if (
-        result.rolledOver &&
-        result.modal?.payoutYami &&
-        result.modal.payoutYami > 0
-      ) {
-        toast.success(
-          `Cycle ${result.modal.seasonId} · Rank #${result.modal.rank}: +${result.modal.payoutYami.toLocaleString()} $YAMI`,
-          { className: 'yami-toast' },
-        )
-      }
-    })
+    void syncSeason()
+      .then((result) => {
+        if (result.entitlementError) {
+          toast.error(result.entitlementError, { className: 'yami-toast' })
+        }
+        if (
+          result.rolledOver &&
+          result.modal?.payoutYami &&
+          result.modal.payoutYami > 0
+        ) {
+          toast.success(
+            `Cycle ${result.modal.seasonId} · Rank #${result.modal.rank}: +${result.modal.payoutYami.toLocaleString()} $YAMI`,
+            { className: 'yami-toast' },
+          )
+        }
+      })
+      .catch((err: unknown) => {
+        seasonSynced.current = false
+        const message =
+          err instanceof Error ? err.message : 'Season rollover failed.'
+        toast.error(message, { className: 'yami-toast' })
+      })
   }, [isHydrated, syncSeason])
 
   useEffect(() => {

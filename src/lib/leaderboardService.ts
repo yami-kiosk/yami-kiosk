@@ -17,6 +17,7 @@ import {
   syncCycleScoreRemote,
 } from './supabase/api'
 import { isSupabaseConfigured } from './supabase/client'
+import { useGameStore } from '../store/useGameStore'
 
 function truncateWallet(pubkey: string | null): string | null {
   if (!pubkey) return null
@@ -57,6 +58,7 @@ export async function loadLeaderboard(
 ): Promise<LoadedLeaderboard> {
   const qualified = isSeasonQualified(localPlayer.phase)
   const localHandle = getOperatorDisplayName(localPlayer.operatorName)
+  let seasonYenEarned = localPlayer.seasonYenEarned
 
   if (isSupabaseConfigured()) {
     try {
@@ -64,12 +66,16 @@ export async function loadLeaderboard(
       const hasOperator = Boolean(wallet && localPlayer.operatorName)
 
       if (hasOperator) {
-        await syncCycleScoreRemote(
+        const sync = await syncCycleScoreRemote(
           wallet!,
           seasonId,
-          localPlayer.seasonYenEarned,
+          seasonYenEarned,
           localPlayer.phase,
         )
+        if (sync.success && sync.yen_earned != null) {
+          seasonYenEarned = sync.yen_earned
+          useGameStore.setState({ seasonYenEarned })
+        }
       }
 
       const [rows, walletRank] = await Promise.all([
@@ -79,7 +85,7 @@ export async function loadLeaderboard(
           : Promise.resolve(null),
       ])
 
-      const serverYen = walletRank?.yen_earned ?? localPlayer.seasonYenEarned
+      const serverYen = walletRank?.yen_earned ?? seasonYenEarned
       const entries = mapRemoteRows(rows, wallet)
 
       const localInTop = entries.find((e) => e.isLocal)

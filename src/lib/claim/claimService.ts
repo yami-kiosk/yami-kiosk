@@ -10,16 +10,18 @@ import {
   registerSeasonPayoutRemote,
 } from '../supabase/api'
 import { isSupabaseConfigured } from '../supabase/client'
-import type { ClaimRewardResult, SeasonPayoutRow } from '../supabase/types'
+import type { ClaimRewardResult, SeasonPayoutRow, RegisterSeasonPayoutResult } from '../supabase/types'
 
 export { isClaimEnabled }
 
 export async function registerSeasonEntitlement(
   walletPublicKey: string,
   seasonId: number,
-): Promise<void> {
-  if (!isSupabaseConfigured()) return
-  await registerSeasonPayoutRemote(walletPublicKey, seasonId)
+): Promise<RegisterSeasonPayoutResult> {
+  if (!isSupabaseConfigured()) {
+    return { success: false, message: 'Syndicate offline.' }
+  }
+  return registerSeasonPayoutRemote(walletPublicKey, seasonId)
 }
 
 export async function loadClaimablePayouts(
@@ -51,7 +53,7 @@ export async function claimSeasonReward(
 
   const issuedAt = Date.now()
   const message = buildClaimMessage(seasonId, walletPublicKey, issuedAt)
-  const signature = signClaimMessage(message)
+  const signature = signClaimMessage(message, walletPublicKey)
 
   return claimSeasonRewardRemote({
     wallet: walletPublicKey,

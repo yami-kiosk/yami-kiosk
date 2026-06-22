@@ -133,7 +133,7 @@ export function LoadingScreen({
           })
           return
         }
-        onEnter()
+        setError('Could not confirm syndicate registration — try again.')
       } finally {
         setSubmitting(false)
       }

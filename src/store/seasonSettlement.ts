@@ -14,6 +14,7 @@ export interface SeasonEndModalData {
 export interface SeasonSyncResult {
   rolledOver: boolean
   modal: SeasonEndModalData | null
+  entitlementError?: string | null
 }
 
 export function buildSeasonEndModal(
