@@ -113,6 +113,7 @@ export async function syncCycleScoreRemote(
   return {
     success: Boolean(result.success),
     yen_earned: result.yen_earned,
+    phase: result.phase,
     clamped: result.clamped,
     clamp_reason: result.clamp_reason ?? null,
     server_rate_cap: result.server_rate_cap,

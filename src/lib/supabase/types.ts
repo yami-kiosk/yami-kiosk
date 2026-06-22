@@ -27,6 +27,7 @@ export interface WalletRankResult {
 export interface SyncCycleScoreResult {
   success: boolean
   yen_earned?: number
+  phase?: number
   clamped?: boolean
   clamp_reason?: 'initial_cap' | 'rate_cap' | null
   server_rate_cap?: number
@@ -43,6 +44,7 @@ export interface RpcRegisterResponse {
 export interface RpcSyncResponse {
   success: boolean
   yen_earned?: number
+  phase?: number
   clamped?: boolean
   clamp_reason?: 'initial_cap' | 'rate_cap' | null
   server_rate_cap?: number

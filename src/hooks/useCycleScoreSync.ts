@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { reconcileEconomyFromServer } from '../lib/antiCheat/reconcileEconomy'
 import { syncCycleScoreRemote } from '../lib/supabase/api'
 import { isSupabaseConfigured } from '../lib/supabase/client'
 import { getCurrentSeasonId } from '../store/seasonConfig'
@@ -31,7 +32,10 @@ export function useCycleScoreSync(enabled: boolean) {
           state.phase,
         )
         if (result.success && result.yen_earned != null) {
-          useGameStore.setState({ seasonYenEarned: result.yen_earned })
+          reconcileEconomyFromServer({
+            seasonYenEarned: result.yen_earned,
+            phase: result.phase,
+          })
 
           if (result.clamped && !clampWarned.current) {
             clampWarned.current = true

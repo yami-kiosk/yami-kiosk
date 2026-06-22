@@ -1,25 +1,4 @@
--- Balanced anti-autoclick: server enforces fair caps, client stays permissive.
--- Tighter than migration 900 (blocks autoclick on leaderboard) but looser than 800
--- (fast human clicking + combo still OK after sync-interval fix).
-
-create or replace function public.max_active_yen_per_minute(p_phase smallint)
-returns numeric
-language sql
-immutable
-as $$
-  -- ~12–14 full-reward human clicks/sec burst with combo/doctrine headroom
-  select 220.0
-    * ((public.phase_active_base(p_phase) + 20.0) / 60.0)
-    * 1.234;
-$$;
-
-create or replace function public.max_raid_burst_yen(p_phase smallint)
-returns numeric
-language sql
-immutable
-as $$
-  select public.phase_passive_base(p_phase) * 4.5 * 2.0;
-$$;
+-- Return authoritative phase from sync so client can clamp spoofed progression.
 
 create or replace function public.sync_cycle_score(
   p_wallet text,
@@ -156,83 +135,6 @@ begin
     'clamped', v_clamped,
     'clamp_reason', v_clamp_reason,
     'server_rate_cap', v_rate
-  );
-end;
-$$;
-
-comment on column public.cycle_scores.last_clamp_reason is
-  'rate_cap | initial_cap — rate_cap increments sync_clamp_count (autoclick audit).';
-
--- Block payout for persistent server-side clamp offenders (autoclick / score spoof)
-create or replace function public.begin_season_claim(p_wallet text, p_season_id integer)
-returns jsonb
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_row public.season_payouts%rowtype;
-begin
-  if p_wallet is null or not public.is_valid_solana_address(trim(p_wallet)) then
-    return jsonb_build_object('success', false, 'code', 'INVALID', 'message', 'Invalid wallet.');
-  end if;
-
-  select * into v_row
-  from public.season_payouts
-  where wallet_pubkey = trim(p_wallet)
-    and season_id = p_season_id
-  for update;
-
-  if not found then
-    return jsonb_build_object(
-      'success', false,
-      'code', 'NOT_FOUND',
-      'message', 'No payout entitlement for this cycle.'
-    );
-  end if;
-
-  if v_row.status = 'claimed' then
-    return jsonb_build_object(
-      'success', false,
-      'code', 'ALREADY_CLAIMED',
-      'message', 'Reward already claimed.',
-      'tx_signature', v_row.tx_signature
-    );
-  end if;
-
-  if v_row.status = 'processing' then
-    return jsonb_build_object(
-      'success', false,
-      'code', 'IN_PROGRESS',
-      'message', 'Claim already in progress.'
-    );
-  end if;
-
-  if exists (
-    select 1 from public.cheat_suspects cs
-    where cs.wallet_pubkey = trim(p_wallet)
-      and cs.sync_clamp_count >= 30
-      and cs.clamped_recently = true
-  ) then
-    return jsonb_build_object(
-      'success', false,
-      'code', 'BLOCKED',
-      'message', 'Payout blocked — syndicate audit flag on this node.'
-    );
-  end if;
-
-  update public.season_payouts
-     set status = 'processing',
-         claim_error = null
-   where wallet_pubkey = v_row.wallet_pubkey
-     and season_id = v_row.season_id;
-
-  return jsonb_build_object(
-    'success', true,
-    'season_id', v_row.season_id,
-    'rank', v_row.rank,
-    'amount_yami', v_row.amount_yami,
-    'destination_pubkey', v_row.destination_pubkey
   );
 end;
 $$;

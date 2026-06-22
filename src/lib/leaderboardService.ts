@@ -11,13 +11,13 @@ import {
   type LocalLeaderboardPlayer,
 } from './leaderboardOffline'
 import { getOperatorDisplayName } from './operatorName'
+import { reconcileEconomyFromServer } from './antiCheat/reconcileEconomy'
 import {
   fetchLeaderboardRemote,
   fetchWalletRankRemote,
   syncCycleScoreRemote,
 } from './supabase/api'
 import { isSupabaseConfigured } from './supabase/client'
-import { useGameStore } from '../store/useGameStore'
 
 function truncateWallet(pubkey: string | null): string | null {
   if (!pubkey) return null
@@ -74,7 +74,10 @@ export async function loadLeaderboard(
         )
         if (sync.success && sync.yen_earned != null) {
           seasonYenEarned = sync.yen_earned
-          useGameStore.setState({ seasonYenEarned })
+          reconcileEconomyFromServer({
+            seasonYenEarned: sync.yen_earned,
+            phase: sync.phase,
+          })
         }
       }
 
@@ -170,6 +173,13 @@ export async function computeSeasonPayoutRemote(params: {
       params.seasonYenEarned,
       params.phase,
     )
+
+    if (sync.success && sync.yen_earned != null) {
+      reconcileEconomyFromServer({
+        seasonYenEarned: sync.yen_earned,
+        phase: sync.phase,
+      })
+    }
 
     const yenEarned = sync.yen_earned ?? params.seasonYenEarned
     const rankResult = await fetchWalletRankRemote(

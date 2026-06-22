@@ -1,9 +1,13 @@
-/** Client-side inject guard — minimal UX checks only; server sync_cycle_score is authoritative. */
+/** Client-side inject guard — soft click cap; server sync_cycle_score is authoritative. */
 
-/** Block same-frame double-fire only. Autoclick is capped server-side on sync. */
+/** Block same-frame double-fire only. */
 export const INJECT_MIN_INTERVAL_MS = 16
 
-export type InjectVerdict = 'ok' | 'too_fast'
+/** Rolling window — ~4 clicks/sec sustained; bursts OK, autoclick farm not. */
+export const INJECT_WINDOW_MS = 60_000
+export const INJECT_MAX_CLICKS_PER_WINDOW = 240
+
+export type InjectVerdict = 'ok' | 'too_fast' | 'rate_cap'
 
 export interface InjectGuardResult {
   verdict: InjectVerdict
@@ -15,10 +19,18 @@ export interface InjectGuardResult {
 
 interface GuardState {
   lastInjectAt: number
+  timestamps: number[]
 }
 
 const state: GuardState = {
   lastInjectAt: 0,
+  timestamps: [],
+}
+
+function pruneTimestamps(now: number): void {
+  state.timestamps = state.timestamps.filter(
+    (t) => now - t <= INJECT_WINDOW_MS,
+  )
 }
 
 export function evaluateInjectAttempt(now = Date.now()): InjectGuardResult {
@@ -32,7 +44,19 @@ export function evaluateInjectAttempt(now = Date.now()): InjectGuardResult {
     }
   }
 
+  pruneTimestamps(now)
+  state.timestamps.push(now)
   state.lastInjectAt = now
+
+  if (state.timestamps.length > INJECT_MAX_CLICKS_PER_WINDOW) {
+    return {
+      verdict: 'rate_cap',
+      rewardMultiplier: 0,
+      allowCombo: false,
+      message: null,
+      shouldWarn: false,
+    }
+  }
 
   return {
     verdict: 'ok',
@@ -46,14 +70,16 @@ export function evaluateInjectAttempt(now = Date.now()): InjectGuardResult {
 /** Dev / testing only */
 export function resetInjectGuard(): void {
   state.lastInjectAt = 0
+  state.timestamps = []
 }
 
-export function getInjectGuardStatus(_now = Date.now()): {
+export function getInjectGuardStatus(now = Date.now()): {
   botPenaltyRemainingMs: number
   recentClickCount: number
 } {
+  pruneTimestamps(now)
   return {
     botPenaltyRemainingMs: 0,
-    recentClickCount: 0,
+    recentClickCount: state.timestamps.length,
   }
 }
