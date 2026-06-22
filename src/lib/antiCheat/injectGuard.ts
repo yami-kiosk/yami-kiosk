@@ -1,18 +1,21 @@
 /** Client-side inject anti-cheat — complements server sync_cycle_score rate caps. */
 
-export const INJECT_MIN_INTERVAL_MS = 85
+export const INJECT_MIN_INTERVAL_MS = 60
 export const INJECT_WINDOW_MS = 10_000
-/** ~8.5 clicks/sec sustained before soft rate cap. */
-export const INJECT_MAX_PER_WINDOW = 85
+/** ~12 clicks/sec sustained before soft rate cap (full reward below this). */
+export const INJECT_MAX_PER_WINDOW = 120
 
-export const BOT_SAMPLE_SIZE = 24
-export const BOT_MIN_SAMPLES = 22
-/** Only flag extremely uniform timing (real autoclickers ≈ CV < 0.03). */
-export const BOT_MAX_CV = 0.032
+export const BOT_SAMPLE_SIZE = 28
+export const BOT_MIN_SAMPLES = 26
+/** Only flag near-perfect timing — real autoclickers ≈ CV < 0.01. */
+export const BOT_MAX_CV = 0.012
+/** Sustained mean interval faster than this + low CV = automation. */
+export const BOT_MAX_MEAN_INTERVAL_MS = 55
 
-export const BOT_PENALTY_MS = 22_000
-export const BOT_MIN_CLICKS_FOR_FLAG = 55
+export const BOT_PENALTY_MS = 10_000
+export const BOT_MIN_CLICKS_FOR_FLAG = 95
 export const WARNING_COOLDOWN_MS = 8_000
+export const RATE_CAP_MULTIPLIER = 0.55
 
 export type InjectVerdict = 'ok' | 'too_fast' | 'rate_cap' | 'bot'
 
@@ -56,7 +59,10 @@ function pruneTimestamps(now: number): void {
 function detectBotPattern(): boolean {
   if (state.intervals.length < BOT_MIN_SAMPLES) return false
   const sample = state.intervals.slice(-BOT_SAMPLE_SIZE)
-  return coefficientOfVariation(sample) <= BOT_MAX_CV
+  const cv = coefficientOfVariation(sample)
+  if (cv > BOT_MAX_CV) return false
+  const mean = sample.reduce((a, b) => a + b, 0) / sample.length
+  return mean <= BOT_MAX_MEAN_INTERVAL_MS
 }
 
 function pushWarning(message: string, now: number): InjectGuardResult {
@@ -104,21 +110,11 @@ export function evaluateInjectAttempt(now = Date.now()): InjectGuardResult {
   state.lastInjectAt = now
 
   if (state.timestamps.length > INJECT_MAX_PER_WINDOW) {
-    if (detectBotPattern()) {
-      state.botFlaggedUntil = now + BOT_PENALTY_MS
-      state.timestamps = []
-      state.intervals = []
-      return pushWarning(
-        'SYNTHETIC INPUT DETECTED — syndicate ICE locked inject payouts.',
-        now,
-      )
-    }
-
     const shouldWarn = now - state.lastWarningAt >= WARNING_COOLDOWN_MS
     if (shouldWarn) state.lastWarningAt = now
     return {
       verdict: 'rate_cap',
-      rewardMultiplier: 0.35,
+      rewardMultiplier: RATE_CAP_MULTIPLIER,
       allowCombo: true,
       message: 'RATE LIMIT — excess injects yield reduced $YEN.',
       shouldWarn,
