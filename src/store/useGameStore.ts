@@ -95,6 +95,7 @@ import {
   evaluateInjectAttempt,
   type InjectVerdict,
 } from '../lib/antiCheat/injectGuard'
+import { clampSeasonIncomeGrant } from '../lib/antiCheat/incomeCap'
 
 let syncSeasonInFlight: Promise<SeasonSyncResult> | null = null
 let walletInitStarted = false
@@ -167,6 +168,9 @@ interface GameState {
 
   activeSeasonId: number
   seasonYenEarned: number
+  /** Anchor for local income cap (mirrors server sync window). */
+  incomeCapBaselineAt: number
+  incomeCapBaselineSeason: number
   lastSeasonPayoutYami: number
   pendingSeasonEndModal: SeasonEndModalData | null
 
@@ -212,6 +216,29 @@ function clampGridPower(value: number): number {
   return Math.max(0, Math.min(GRID_POWER_MAX, value))
 }
 
+function capIncomeGrant(
+  state: Pick<
+    GameState,
+    | 'phase'
+    | 'seasonYenEarned'
+    | 'incomeCapBaselineAt'
+    | 'incomeCapBaselineSeason'
+  >,
+  amount: number,
+  now: number,
+): number {
+  return clampSeasonIncomeGrant(
+    {
+      phase: state.phase,
+      seasonYenEarned: state.seasonYenEarned,
+      incomeCapBaselineAt: state.incomeCapBaselineAt,
+      incomeCapBaselineSeason: state.incomeCapBaselineSeason,
+    },
+    amount,
+    now,
+  )
+}
+
 function getCollapseDrain(
   phase: GamePhase,
   passiveRatePerMin: number,
@@ -253,6 +280,8 @@ function getGrindResetState(hijackPassiveBonus = 0) {
     ghostTarget: null,
     totalGhostRaidsWon: 0,
     seasonYenEarned: 0,
+    incomeCapBaselineAt: Date.now(),
+    incomeCapBaselineSeason: 0,
     lastSavedTime: Date.now(),
     ...rates,
     dirtyCreditsPerMin: 0,
@@ -344,6 +373,8 @@ export const useGameStore = create<GameState>()(
 
       activeSeasonId: getCurrentSeasonId(),
       seasonYenEarned: 0,
+      incomeCapBaselineAt: Date.now(),
+      incomeCapBaselineSeason: 0,
       lastSeasonPayoutYami: 0,
       pendingSeasonEndModal: null,
 
@@ -495,11 +526,12 @@ export const useGameStore = create<GameState>()(
           return
         }
 
+        const passiveGrant = capIncomeGrant(state, passivePerTick, now)
         set({
           ...overclockPatch,
-          yen: roundYen(state.yen + passivePerTick),
+          yen: roundYen(state.yen + passiveGrant),
           dirtyCredits: state.dirtyCredits + dirtyPerTick,
-          seasonYenEarned: state.seasonYenEarned + passivePerTick,
+          seasonYenEarned: state.seasonYenEarned + passiveGrant,
           gridPower: clampGridPower(nextPower),
           lastSavedTime: now,
         })
@@ -537,7 +569,9 @@ export const useGameStore = create<GameState>()(
           state.syndicateDoctrine,
           (state.activeRatePerMin / 60) * comboMult,
         )
-        const activePerClick = roundYen(basePerClick * guard.rewardMultiplier)
+        const activePerClick = roundYen(
+          capIncomeGrant(state, basePerClick * guard.rewardMultiplier, now),
+        )
         const nextPower = clampGridPower(
           state.gridPower + state.powerRestoreOnClick,
         )
@@ -626,9 +660,10 @@ export const useGameStore = create<GameState>()(
         const result = get().calculateOfflineProgress(now)
 
         if (result.ticksSimulated > 0) {
-          const yenGain = Math.max(0, result.yenGained)
+          const rawGain = Math.max(0, result.yenGained)
+          const yenGain = capIncomeGrant(state, rawGain, now)
           set({
-            yen: roundYen(Math.max(0, state.yen + result.yenGained)),
+            yen: roundYen(Math.max(0, state.yen + yenGain)),
             dirtyCredits: state.dirtyCredits + result.dirtyCreditsGained,
             seasonYenEarned: state.seasonYenEarned + yenGain,
             gridPower: result.finalGridPower,
@@ -829,18 +864,19 @@ export const useGameStore = create<GameState>()(
                 state.softwareLevel,
                 lootMult,
               )
+              const cappedYen = capIncomeGrant(state, rewards.yen, now)
               result = {
                 success: true,
-                message: `NODE BREACHED — extracted ${rewards.dirtyCredits} credits + ${rewards.yen.toLocaleString()} $YEN`,
+                message: `NODE BREACHED — extracted ${rewards.dirtyCredits} credits + ${cappedYen.toLocaleString()} $YEN`,
                 dirtyCreditsGained: rewards.dirtyCredits,
-                yenGained: rewards.yen,
+                yenGained: cappedYen,
               }
               return {
                 ...state,
                 yamiBalance: state.yamiBalance - raidFee,
                 dirtyCredits: state.dirtyCredits + rewards.dirtyCredits,
-                yen: roundYen(state.yen + rewards.yen),
-                seasonYenEarned: state.seasonYenEarned + rewards.yen,
+                yen: roundYen(state.yen + cappedYen),
+                seasonYenEarned: state.seasonYenEarned + cappedYen,
                 totalRaidsAttempted: state.totalRaidsAttempted + 1,
                 totalRaidsWon: state.totalRaidsWon + 1,
                 lastRaidAt: now,
@@ -965,12 +1001,16 @@ export const useGameStore = create<GameState>()(
                 lootMult,
               )
               const ghostBonus = calculateGhostBonusYen(ghost)
-              const totalYen = rewards.yen + ghostBonus
+              const cappedYen = capIncomeGrant(
+                state,
+                rewards.yen + ghostBonus,
+                now,
+              )
               result = {
                 success: true,
-                message: `GHOST BREACHED @${ghost.handle} — +${totalYen.toLocaleString()} $YEN (+${ghostBonus.toLocaleString()} ghost bonus)`,
+                message: `GHOST BREACHED @${ghost.handle} — +${cappedYen.toLocaleString()} $YEN`,
                 dirtyCreditsGained: rewards.dirtyCredits,
-                yenGained: totalYen,
+                yenGained: cappedYen,
                 isGhostRaid: true,
                 ghostHandle: ghost.handle,
               }
@@ -978,8 +1018,8 @@ export const useGameStore = create<GameState>()(
                 ...state,
                 yamiBalance: state.yamiBalance - raidFee,
                 dirtyCredits: state.dirtyCredits + rewards.dirtyCredits,
-                yen: roundYen(state.yen + totalYen),
-                seasonYenEarned: state.seasonYenEarned + totalYen,
+                yen: roundYen(state.yen + cappedYen),
+                seasonYenEarned: state.seasonYenEarned + cappedYen,
                 totalRaidsAttempted: state.totalRaidsAttempted + 1,
                 totalRaidsWon: state.totalRaidsWon + 1,
                 totalGhostRaidsWon: state.totalGhostRaidsWon + 1,
@@ -1221,7 +1261,7 @@ export const useGameStore = create<GameState>()(
     }),
     {
       name: STORAGE_KEY,
-      version: 9,
+      version: 10,
       migrate: (persisted, version) => {
         const state = persisted as Record<string, unknown>
         if (
@@ -1265,6 +1305,16 @@ export const useGameStore = create<GameState>()(
         if (version < 9) {
           state.pendingSeasonEndModal = null
         }
+        if (version < 10) {
+          const season =
+            typeof state.seasonYenEarned === 'number' ? state.seasonYenEarned : 0
+          const saved =
+            typeof state.lastSavedTime === 'number'
+              ? state.lastSavedTime
+              : Date.now()
+          state.incomeCapBaselineAt = saved
+          state.incomeCapBaselineSeason = season
+        }
         return state as typeof persisted
       },
       partialize: (state) => ({
@@ -1299,6 +1349,8 @@ export const useGameStore = create<GameState>()(
         totalGhostRaidsWon: state.totalGhostRaidsWon,
         activeSeasonId: state.activeSeasonId,
         seasonYenEarned: state.seasonYenEarned,
+        incomeCapBaselineAt: state.incomeCapBaselineAt,
+        incomeCapBaselineSeason: state.incomeCapBaselineSeason,
         lastSeasonPayoutYami: state.lastSeasonPayoutYami,
         operatorName: state.operatorName,
         payoutPubkey: state.payoutPubkey,
