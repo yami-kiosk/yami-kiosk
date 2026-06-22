@@ -12,6 +12,8 @@ import {
   sanitizeOperatorName,
 } from '../lib/operatorName'
 import { isSupabaseConfigured, getSupabaseConfigHint } from '../lib/supabase/client'
+import { copyToClipboard } from '../lib/clipboard'
+import { truncatePublicKey } from '../lib/wallet'
 import { useSupabaseStatus } from '../hooks/useSupabaseStatus'
 import { useGameStore } from '../store/useGameStore'
 
@@ -194,7 +196,7 @@ export function LoadingScreen({
             />
             {isLocked ? (
               <p className="mt-2 text-center font-mono text-[9px] text-terminal-green/70">
-                1 HANDLE · 1 BURNER NODE — locked to this account
+                1 HANDLE · 1 BURNER NODE — tap ENTER to sync to syndicate network
               </p>
             ) : (
               <>
@@ -220,6 +222,28 @@ export function LoadingScreen({
               <p className="mt-2 text-center font-mono text-[9px] text-neon-pink">
                 {error}
               </p>
+            ) : null}
+
+            {walletPublicKey ? (
+              <div className="mt-3 border border-cyber-cyan/15 bg-cyber-cyan/5 px-3 py-2">
+                <p className="text-center font-mono text-[8px] text-cyber-cyan/50">
+                  BURNER NODE // registers to Supabase as this wallet
+                </p>
+                <p className="mt-1 break-all text-center font-mono text-[9px] text-terminal-green">
+                  {walletPublicKey}
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void copyToClipboard(walletPublicKey).then((ok) => {
+                      if (ok) toast.success('Burner address copied', { className: 'yami-toast' })
+                    })
+                  }
+                  className="mt-2 w-full font-mono text-[8px] text-cyber-cyan/70 hover:text-neon-pink"
+                >
+                  [ COPY ] {truncatePublicKey(walletPublicKey, 6)}
+                </button>
+              </div>
             ) : null}
           </div>
 

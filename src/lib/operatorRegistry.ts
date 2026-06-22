@@ -196,7 +196,8 @@ export async function registerOperatorAccount(
       registerOperatorLocal(remote.name, walletPublicKey)
       return remote
     }
-    if (remote.code !== 'NETWORK') return remote
+    // Env is configured — do not silently fall back to local-only.
+    return remote
   }
 
   const existingLocal = getRegisteredNameForWallet(walletPublicKey)
