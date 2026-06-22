@@ -23,8 +23,8 @@ grant execute on function public.finish_season_claim(text, integer, text, boolea
 grant execute on function public.release_season_claim(text, integer) to service_role;
 
 -- Admin cheat audit: not public
-revoke all on public.cheat_suspects from public;
-revoke all on function public.get_cheat_suspects(integer) from public;
+revoke all on public.cheat_suspects from public, anon, authenticated;
+revoke all on function public.get_cheat_suspects(integer) from public, anon, authenticated;
 
 grant select on public.cheat_suspects to service_role;
 grant execute on function public.get_cheat_suspects(integer) to service_role;
