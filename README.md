@@ -55,6 +55,33 @@ npx supabase functions deploy claim-reward
 
 Update social links in `src/constants/contracts.ts`.
 
+## Deploy (Vercel)
+
+1. Push this repo to GitHub (already: `yami-kiosk/yami-kiosk`).
+2. [vercel.com/new](https://vercel.com/new) → **Import** the private repo.
+   - Framework: **Vite** (auto-detected via `vercel.json`)
+   - Build: `npm run build` · Output: `dist`
+3. **Environment Variables** (Production + Preview):
+
+   | Name | Value |
+   |------|--------|
+   | `VITE_SUPABASE_URL` | `https://qetpaadmjgyscdzfojwz.supabase.co` |
+   | `VITE_SUPABASE_ANON_KEY` | anon key from Supabase → Settings → API |
+
+   After token launch, also add `VITE_YAMI_MINT` and `VITE_CLAIM_ENABLED=true`.
+
+4. **Deploy** → copy the `.vercel.app` URL.
+
+CLI (optional):
+
+```bash
+npx vercel login
+npx vercel link
+npx vercel env add VITE_SUPABASE_URL
+npx vercel env add VITE_SUPABASE_ANON_KEY
+npx vercel --prod
+```
+
 ## Scripts
 
 | Command | Description |
