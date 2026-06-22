@@ -16,13 +16,15 @@ function pickIncomeCapState(
 ): IncomeCapState {
   return {
     phase: state.phase,
+    passiveRatePerMin: state.passiveRatePerMin,
+    activeRatePerMin: state.activeRatePerMin,
     incomeCapBaselineAt: state.incomeCapBaselineAt,
     incomeCapBaselineSeason: state.incomeCapBaselineSeason,
     seasonYenEarned: state.seasonYenEarned,
   }
 }
 
-/** Cap a $YEN income grant (inject, passive, raid) to match server rate limits. */
+/** Cap a $YEN income grant (inject, passive, raid) to block autoclick farms. */
 export function grantCappedSeasonIncome(
   requested: number,
   now = Date.now(),
@@ -32,7 +34,7 @@ export function grantCappedSeasonIncome(
 }
 
 /**
- * Align season score + income cap anchor with server. Trim wallet if local ran ahead.
+ * Sync leaderboard score with server. Only reset income cap when server clamps down.
  */
 export function reconcileEconomyFromServer(
   snapshot: ServerEconomySnapshot,
@@ -41,16 +43,21 @@ export function reconcileEconomyFromServer(
   const serverYen = roundYen(snapshot.seasonYenEarned)
   const localSeason = roundYen(state.seasonYenEarned)
   const now = Date.now()
-  const patches: Record<string, unknown> = createIncomeCapBaseline(serverYen, now)
+  const patches: Record<string, unknown> = {}
 
   if (serverYen + 0.01 < localSeason) {
     const delta = roundYen(localSeason - serverYen)
     patches.seasonYenEarned = serverYen
     patches.yen = roundYen(Math.max(0, state.yen - delta))
-  } else if (Math.abs(serverYen - localSeason) > 0.01) {
+    Object.assign(patches, createIncomeCapBaseline(serverYen, now))
+  } else if (serverYen > localSeason + 0.01) {
     patches.seasonYenEarned = serverYen
   }
 
-  useGameStore.setState(patches)
-  return true
+  if (Object.keys(patches).length > 0) {
+    useGameStore.setState(patches)
+    return true
+  }
+
+  return false
 }

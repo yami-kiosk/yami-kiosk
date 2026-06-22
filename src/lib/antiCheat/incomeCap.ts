@@ -1,17 +1,15 @@
 /**
- * Local income ceiling — mirrors server sync_cycle_score (migration 2200).
- * Caps cumulative season $YEN so autoclick cannot rush phases; fast manual play stays within slack.
+ * Local income ceiling — uses live player rates (skills/combo/phase).
+ * Blocks sustained autoclick (15+ CPS) without punishing normal fast manual play.
  */
 
 import type { GamePhase } from '../../store/gameConfig'
 import { roundYen } from '../yen'
 
-/** Keep in sync with supabase/migrations/20260622220000_gameplay_click_fix.sql */
-const ACTIVE_CLICKS_PER_MIN = 320
-const PASSIVE_SKILL_SLACK = 1.134
-const ACTIVE_SKILL_SLACK = 1.234
-const INCOME_SLACK = 2.0
-const RAID_BURST_MULT = 2.0
+/** ~12 clicks/sec sustained with combo headroom — above this is autoclick territory. */
+const MAX_SUSTAINED_CLICKS_PER_SEC = 12
+const COMBO_HEADROOM = 1.4
+const INCOME_SLACK = 1.35
 
 const PHASE_PASSIVE_BASE: Record<GamePhase, number> = {
   1: 3.5,
@@ -22,40 +20,29 @@ const PHASE_PASSIVE_BASE: Record<GamePhase, number> = {
   6: 1100.0,
 }
 
-const PHASE_ACTIVE_BASE: Record<GamePhase, number> = {
-  1: 14.0,
-  2: 36.0,
-  3: 110.0,
-  4: 320.0,
-  5: 1100.0,
-  6: 4200.0,
-}
-
-export function maxPassiveYenPerMinute(phase: GamePhase): number {
-  return (PHASE_PASSIVE_BASE[phase] + 20) * PASSIVE_SKILL_SLACK
-}
-
-export function maxActiveYenPerMinute(phase: GamePhase): number {
-  return (
-    ACTIVE_CLICKS_PER_MIN *
-    ((PHASE_ACTIVE_BASE[phase] + 20) / 60) *
-    ACTIVE_SKILL_SLACK
-  )
-}
-
-export function maxYenPerMinute(phase: GamePhase): number {
-  return maxPassiveYenPerMinute(phase) + maxActiveYenPerMinute(phase)
-}
-
 export function maxRaidBurstYen(phase: GamePhase): number {
-  return PHASE_PASSIVE_BASE[phase] * 4.5 * RAID_BURST_MULT
+  return PHASE_PASSIVE_BASE[phase] * 4.5 * 2.0
 }
 
 export interface IncomeCapState {
   phase: GamePhase
+  passiveRatePerMin: number
+  activeRatePerMin: number
   incomeCapBaselineAt: number
   incomeCapBaselineSeason: number
   seasonYenEarned: number
+}
+
+/** Legitimate $YEN/min at current build — scales with skills, not just phase base. */
+export function getLegitimateRatePerMin(state: Pick<
+  IncomeCapState,
+  'passiveRatePerMin' | 'activeRatePerMin'
+>): number {
+  const passive = Math.max(0, state.passiveRatePerMin)
+  const active = Math.max(0, state.activeRatePerMin)
+  const activeClickBudget =
+    active * MAX_SUSTAINED_CLICKS_PER_SEC * COMBO_HEADROOM
+  return passive + activeClickBudget
 }
 
 export function getMaxSeasonYenAllowed(
@@ -63,7 +50,7 @@ export function getMaxSeasonYenAllowed(
   now = Date.now(),
 ): number {
   const elapsedMinutes = Math.max(0, (now - state.incomeCapBaselineAt) / 60_000)
-  const rate = maxYenPerMinute(state.phase)
+  const rate = getLegitimateRatePerMin(state)
   let maxGain = elapsedMinutes * rate * INCOME_SLACK
 
   if (elapsedMinutes >= 1) {

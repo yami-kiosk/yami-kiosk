@@ -220,6 +220,8 @@ function capIncomeGrant(
   state: Pick<
     GameState,
     | 'phase'
+    | 'passiveRatePerMin'
+    | 'activeRatePerMin'
     | 'seasonYenEarned'
     | 'incomeCapBaselineAt'
     | 'incomeCapBaselineSeason'
@@ -230,6 +232,8 @@ function capIncomeGrant(
   return clampSeasonIncomeGrant(
     {
       phase: state.phase,
+      passiveRatePerMin: state.passiveRatePerMin,
+      activeRatePerMin: state.activeRatePerMin,
       seasonYenEarned: state.seasonYenEarned,
       incomeCapBaselineAt: state.incomeCapBaselineAt,
       incomeCapBaselineSeason: state.incomeCapBaselineSeason,
