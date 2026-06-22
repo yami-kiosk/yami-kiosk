@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { GameScreen } from './components/GameScreen'
 import { LandingPage } from './components/LandingPage'
 import { LoadingScreen } from './components/LoadingScreen'
+import { MusicPlayer } from './components/MusicPlayer'
 import { SeasonEndModal } from './components/SeasonEndModal'
 import { getOfflineReturnToast } from './lib/offlineToast'
 import { useCycleScoreSync } from './hooks/useCycleScoreSync'
@@ -105,34 +106,41 @@ function App() {
 
   useCycleScoreSync(screen === 'game' && isHydrated)
 
+  let screenContent: ReactNode
+
   if (screen === 'landing') {
-    return (
+    screenContent = (
       <div key="landing" className="screen-enter">
         <LandingPage onEnter={handleEnterKiosk} />
       </div>
     )
-  }
-
-  if (screen === 'loading' || (screen === 'game' && !kioskReady)) {
-    return (
+  } else if (screen === 'loading' || (screen === 'game' && !kioskReady)) {
+    screenContent = (
       <LoadingScreen
         variant={screen === 'loading' ? 'bypass' : 'boot'}
         ready={kioskReady}
         onEnter={handleEnterAlley}
       />
     )
+  } else {
+    screenContent = (
+      <div key="game" className="screen-enter h-svh overflow-hidden">
+        <GameScreen onExit={handleExitToLanding} />
+        {pendingSeasonEndModal ? (
+          <SeasonEndModal
+            data={pendingSeasonEndModal}
+            onDismiss={dismissSeasonEndModal}
+          />
+        ) : null}
+      </div>
+    )
   }
 
   return (
-    <div key="game" className="screen-enter h-svh overflow-hidden">
-      <GameScreen onExit={handleExitToLanding} />
-      {pendingSeasonEndModal ? (
-        <SeasonEndModal
-          data={pendingSeasonEndModal}
-          onDismiss={dismissSeasonEndModal}
-        />
-      ) : null}
-    </div>
+    <>
+      {screenContent}
+      <MusicPlayer />
+    </>
   )
 }
 
