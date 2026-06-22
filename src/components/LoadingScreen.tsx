@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import {
+  ensureOperatorSyncedToRemote,
   getRegisteredNameForWallet,
   resolveRegisteredNameForWallet,
 } from '../lib/operatorRegistry'
@@ -77,10 +78,38 @@ export function LoadingScreen({
   }
 
   const handleEnter = async () => {
-    if (!nameValid || !onEnter) return
+    if (!nameValid || !onEnter || !walletPublicKey) return
 
     if (isLocked && lockedName) {
-      onEnter()
+      if (!isSupabaseConfigured()) {
+        onEnter()
+        return
+      }
+
+      setSubmitting(true)
+      setError(null)
+      try {
+        const sync = await ensureOperatorSyncedToRemote(walletPublicKey)
+        if (sync?.success) {
+          setLockedName(sync.name)
+          toast.success(`Operator ${sync.name} synced to syndicate network.`, {
+            className: 'yami-toast',
+          })
+          onEnter()
+          return
+        }
+        if (sync && !sync.success) {
+          setError(sync.message)
+          toast.error(sync.message, {
+            className: 'yami-toast',
+            duration: 8000,
+          })
+          return
+        }
+        onEnter()
+      } finally {
+        setSubmitting(false)
+      }
       return
     }
 
@@ -99,6 +128,10 @@ export function LoadingScreen({
             'Set VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY on Vercel, redeploy, then refresh.',
           className: 'yami-toast',
           duration: 8000,
+        })
+      } else {
+        toast.success(`Operator ${result.name} registered on syndicate network.`, {
+          className: 'yami-toast',
         })
       }
       setLockedName(result.name)

@@ -85,7 +85,8 @@ import {
   resolveRegisteredNameForWallet,
   type RegisterOperatorResult,
 } from '../lib/operatorRegistry'
-import { fetchOperatorPayoutRemote } from '../lib/supabase/api'
+import { fetchOperatorHandle, fetchOperatorPayoutRemote } from '../lib/supabase/api'
+import { isSupabaseConfigured } from '../lib/supabase/client'
 import { registerSeasonEntitlement } from '../lib/claim/claimService'
 import { isClaimEnabled } from '../lib/claim/config'
 import { canAffordYen, roundYen } from '../lib/yen'
@@ -400,6 +401,15 @@ export const useGameStore = create<GameState>()(
         )
         if (registeredName) {
           set({ operatorName: registeredName })
+        }
+
+        if (isSupabaseConfigured() && registeredName) {
+          const remote = await fetchOperatorHandle(state.walletPublicKey)
+          if (!remote && registeredName) {
+            console.warn(
+              '[registry] handle local but missing on syndicate network — re-enter alley to sync',
+            )
+          }
         }
 
         const payout = await fetchOperatorPayoutRemote(state.walletPublicKey)
