@@ -1,8 +1,3 @@
-import {
-  clampSeasonIncomeGrant,
-  createIncomeCapBaseline,
-  type IncomeCapState,
-} from './incomeCap'
 import { useGameStore } from '../../store/useGameStore'
 import { roundYen } from '../yen'
 
@@ -11,53 +6,22 @@ export interface ServerEconomySnapshot {
   phase?: number
 }
 
-function pickIncomeCapState(
-  state: ReturnType<typeof useGameStore.getState>,
-): IncomeCapState {
-  return {
-    phase: state.phase,
-    passiveRatePerMin: state.passiveRatePerMin,
-    activeRatePerMin: state.activeRatePerMin,
-    incomeCapBaselineAt: state.incomeCapBaselineAt,
-    incomeCapBaselineSeason: state.incomeCapBaselineSeason,
-    seasonYenEarned: state.seasonYenEarned,
-  }
-}
-
-/** Cap a $YEN income grant (inject, passive, raid) to block autoclick farms. */
-export function grantCappedSeasonIncome(
-  requested: number,
-  now = Date.now(),
-): number {
-  const state = useGameStore.getState()
-  return clampSeasonIncomeGrant(pickIncomeCapState(state), requested, now)
-}
-
 /**
- * Sync leaderboard score with server. Only reset income cap when server clamps down.
+ * Sync the leaderboard score with the server-authoritative value.
+ * Local wallet $YEN and phase are NOT touched — gameplay stays smooth.
+ * Autoclick earning speed is bounded by the client inject rate limiter,
+ * and leaderboard rank is bounded here + by server sync_cycle_score.
  */
 export function reconcileEconomyFromServer(
   snapshot: ServerEconomySnapshot,
 ): boolean {
-  const state = useGameStore.getState()
   const serverYen = roundYen(snapshot.seasonYenEarned)
-  const localSeason = roundYen(state.seasonYenEarned)
-  const now = Date.now()
-  const patches: Record<string, unknown> = {}
+  const localSeason = roundYen(useGameStore.getState().seasonYenEarned)
 
-  if (serverYen + 0.01 < localSeason) {
-    const delta = roundYen(localSeason - serverYen)
-    patches.seasonYenEarned = serverYen
-    patches.yen = roundYen(Math.max(0, state.yen - delta))
-    Object.assign(patches, createIncomeCapBaseline(serverYen, now))
-  } else if (serverYen > localSeason + 0.01) {
-    patches.seasonYenEarned = serverYen
+  if (Math.abs(serverYen - localSeason) <= 0.01) {
+    return false
   }
 
-  if (Object.keys(patches).length > 0) {
-    useGameStore.setState(patches)
-    return true
-  }
-
-  return false
+  useGameStore.setState({ seasonYenEarned: serverYen })
+  return true
 }
