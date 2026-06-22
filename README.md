@@ -66,4 +66,3 @@ Update social links in `src/constants/contracts.ts`.
 ## License
 
 Private — all rights reserved.
-# yami-kiosk
