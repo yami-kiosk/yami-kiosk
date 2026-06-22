@@ -52,6 +52,7 @@ export async function registerOperatorRemote(
   const payload = await signedRegisterOperator(handle, walletPublicKey)
 
   if (payload.success !== true) {
+    const codeRaw = typeof payload.code === 'string' ? payload.code : 'NETWORK'
     const allowed = ['INVALID', 'TAKEN', 'RESERVED', 'WALLET_BOUND', 'NETWORK'] as const
     const code = (allowed as readonly string[]).includes(codeRaw)
       ? (codeRaw as (typeof allowed)[number])
